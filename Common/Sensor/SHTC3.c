@@ -170,11 +170,11 @@ PUBLIC int16 i16SHTC3readResult(int16 *pi16Temp, int16 *pi16Humid)
 	u8crc = u8CRC8(au8data+3,2);
 	if (au8data[5] != u8crc) return SHTC3_DATA_ERROR;
 
-    i32result = au8data[1] | (au8data[0] << 8);
-	if(pi16Temp) *pi16Temp = (int16)( (-4500+(17500*i32result))>>16 );
+ 	i32result = au8data[1] | (au8data[0] << 8);
+	if(pi16Temp) *pi16Temp = (int16)(-4500 + ((17500*i32result)>>16 ));
 	else return SHTC3_DATA_ERROR;
 
-    i32result = au8data[4] | (au8data[3] << 8);
+	i32result = au8data[4] | (au8data[3] << 8);
 	if(pi16Humid) *pi16Humid = (int16)( (i32result*10000)>>16 );
 	else return SHTC3_DATA_ERROR;
 
