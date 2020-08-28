@@ -7,6 +7,7 @@
 /****************************************************************************/
 #include "jendefs.h"
 #include "AppHardwareApi.h"
+#include "utils.h"
 #include "string.h"
 
 #include "sensor_driver.h"

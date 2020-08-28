@@ -2,8 +2,8 @@
  * Released under MW-SLA-*J,*E (MONO WIRELESS SOFTWARE LICENSE   *
  * AGREEMENT).                                                   */
 
-#ifndef  SPI_INCLUDED
-#define  SPI_INCLUDED
+#ifndef  ACCELEVENT_INCLUDED
+#define  ACCELEVENT_INCLUDED
 
 #if defined __cplusplus
 extern "C" {
@@ -16,30 +16,31 @@ extern "C" {
 /****************************************************************************/
 /***        Macro Definitions                                             ***/
 /****************************************************************************/
-// SPI Mode
-#define SPI_MODE0 0
-#define SPI_MODE1 1
-#define SPI_MODE2 2
-#define SPI_MODE3 3
-
-//	有効にするポート数の指定
-#define SLAVE_ENABLE1		(0)			//	DIO19を用いる
-#define SLAVE_ENABLE2		(1)			//	DIO19とDIO0を用いる
-#define SLAVE_ENABLE3		(2)			//	DIO19,0,1を用いる
-
-//	ChipSelect
-#define CS_DIO19			(0x01)		//	DIO19に接続したものを使う
-#define CS_DIO0				(0x02)		//	DIO0に接続したものを使う
-#define CS_DIO1				(0x04)		//	DIO1に接続したものを使
-
-// ChipSelectをするマクロ
-#define vSPIChipSelect(c) vAHI_SpiSelect(c)
-#define vSPIStop() vAHI_SpiStop()
 
 /****************************************************************************/
 /***        Type Definitions                                              ***/
 /****************************************************************************/
+// Event
+typedef enum{
+	ACCEL_EVENT_NONE = 0,
+	ACCEL_EVENT_MOVE = 1,
+	ACCEL_EVENT_TAP = 2,
+	ACCEL_EVENT_DTAP = 3,
+	ACCEL_EVENT_FREEFALL = 4,
+	ACCEL_EVENT_NOTANALYZED = 0xFE,
+	ACCEL_EVENT_END = 0xFF
+} teAccelEvent;
 
+// イベントの推定結果を返すための構造体
+typedef struct
+{
+	teAccelEvent eEvent;
+	uint8 u8TapCount;
+	uint8 u8TapTime;
+	uint8 u8PeakLength;
+	uint32 u32PeakPower;
+	uint8 u8StartSample;
+} tsAccelEventData;
 
 /****************************************************************************/
 /***        Exported Functions (state machine)                            ***/
@@ -48,11 +49,12 @@ extern "C" {
 /****************************************************************************/
 /***        Exported Functions (primitive funcs)                          ***/
 /****************************************************************************/
-PUBLIC void vSPIInit( uint8 u8mode, uint8 u8SlaveEnable, uint8 u8ClockDivider );
-PUBLIC void vSPIWrite( uint8 u8Com );
-PUBLIC void vSPIWrite8( uint8 u8CS, uint8 u8Reg, uint8 u8Com );
-PUBLIC uint8 u8SPIRead( void );
-PUBLIC uint8 u8SPIRead8( uint8 u8CS, uint8 u8Reg );
+PUBLIC void vAccelEvent_Init( uint16 u16frequency );
+PUBLIC bool_t bAccelEvent_SetData( int16* ai16x, int16*ai16y, int16* ai16z,  uint8 u8splnum );
+PUBLIC tsAccelEventData tsAccelEvent_GetEvent();
+PUBLIC bool_t bAccelEvent_IsTap( tsAccelEventData* sData );
+PUBLIC bool_t bAccelEvent_IsMove( tsAccelEventData* sData );
+PUBLIC uint8 u8AccelEvent_Top( void );
 
 /****************************************************************************/
 /***        Exported Variables                                            ***/
@@ -62,7 +64,7 @@ PUBLIC uint8 u8SPIRead8( uint8 u8CS, uint8 u8Reg );
 }
 #endif
 
-#endif  /* LIS3DH_INCLUDED */
+#endif  /* ACCELEVENT_INCLUDED */
 
 /****************************************************************************/
 /***        END OF FILE                                                   ***/

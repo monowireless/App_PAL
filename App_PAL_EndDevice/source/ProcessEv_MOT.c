@@ -28,6 +28,7 @@ static uint8 u8ConMax = 0;
 static uint8 u8FIFOCount = 0;
 static bool_t bContinuous = FALSE;
 static bool_t bActive = FALSE;
+static bool_t bEvent = FALSE;
 static uint16 u16Threshold = 0;
 
 enum {
@@ -77,7 +78,7 @@ PRSEV_HANDLER_DEF(E_STATE_IDLE, tsEvent *pEv, teEvent eEvent, uint32 u32evarg) {
 			if(u8FIFOCount == 0){
 				u8FIFOCount = u8ConMax;
 				V_PRINTF(LB "*** MC3630 Start Measurement ");
-				vMC3630_Wakeup();
+				vMC3630_StartFIFO();
 			}
 			ToCoNet_Event_SetState(pEv, E_STATE_APP_SLEEP);
 		}else{
@@ -115,6 +116,8 @@ PRSEV_HANDLER_DEF(E_STATE_APP_BLINK_LED, tsEvent *pEv, teEvent eEvent, uint32 u3
 			bContinuous = TRUE;
 		}
 
+		
+
 		u16Threshold = (sAppData.sFlash.sData.u32param>>12)&0x0F;
 		if( u16Threshold != 0 && bContinuous ){
 			u8FIFOCount = 0;
@@ -150,7 +153,7 @@ PRSEV_HANDLER_DEF(E_STATE_APP_BLINK_LED, tsEvent *pEv, teEvent eEvent, uint32 u3
 	// タイムアウトの場合はスリープする
 	if (ToCoNet_Event_u32TickFrNewState(pEv) > 750) {
 		V_PRINTF(LB "*** MC3630 First Sleep ");
-		vMC3630_Wakeup();
+		vMC3630_StartFIFO();
 		sAppData.u8LedState = 0;
 		LED_OFF();
 		if(!bActive) u8FIFOCount = u8ConMax;
@@ -310,12 +313,28 @@ PRSEV_HANDLER_DEF(E_STATE_APP_WAIT_TX, tsEvent *pEv, teEvent eEvent, uint32 u32e
 			ToCoNet_Nwk_bResume(sAppData.pContextNwk);
 		}
 
-		if ( bSendData( sObjMC3630.ai16Result, 0, sObjMC3630.u8FIFOSample ) ) {
-			ToCoNet_Tx_vProcessQueue(); // 送信処理をタイマーを待たずに実行する
-		} else {
-			ToCoNet_Event_SetState(pEv, E_STATE_APP_SLEEP); // 送信失敗
+
+		if( sObjMC3630.u8FIFOSample > 16 ){
+			if ( bSendData( sObjMC3630.ai16Result, 0, 16 ) ) {
+				ToCoNet_Tx_vProcessQueue(); // 送信処理をタイマーを待たずに実行する
+			} else {
+				//ToCoNet_Event_SetState(pEv, E_STATE_APP_SLEEP); // 送信失敗
+			}
+			V_PRINTF(" FR=%04X", sAppData.u16frame_count);
+			if ( bSendData( sObjMC3630.ai16Result, 16, sObjMC3630.u8FIFOSample-16 ) ) {
+				ToCoNet_Tx_vProcessQueue(); // 送信処理をタイマーを待たずに実行する
+			} else {
+				ToCoNet_Event_SetState(pEv, E_STATE_APP_SLEEP); // 送信失敗
+			}
+			V_PRINTF(" FR=%04X", sAppData.u16frame_count);
+		}else{
+			if ( bSendData( sObjMC3630.ai16Result, 0, sObjMC3630.u8FIFOSample ) ) {
+				ToCoNet_Tx_vProcessQueue(); // 送信処理をタイマーを待たずに実行する
+			} else {
+				ToCoNet_Event_SetState(pEv, E_STATE_APP_SLEEP); // 送信失敗
+			}
+			V_PRINTF(" FR=%04X", sAppData.u16frame_count);
 		}
-		V_PRINTF(" FR=%04X", sAppData.u16frame_count);
 	}
 
 	if (eEvent == E_ORDER_KICK) { // 送信完了イベントが来たのでスリープする

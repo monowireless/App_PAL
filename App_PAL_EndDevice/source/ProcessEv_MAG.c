@@ -17,6 +17,8 @@ static void vStoreSensorValue();
  */
 #define E_APPCONF_OPT_WAKE_PERIODIC 0x00000001UL
 #define IS_APPCONF_OPT_WAKE_PERIODIC() ((sAppData.sFlash.sData.u32param & E_APPCONF_OPT_WAKE_PERIODIC) != 0)
+#define E_APPCONF_OPT_EVENT_INTEGRATION 0x00000002UL
+#define IS_APPCONF_OPT_EVENT_INTEGRATION() ((sAppData.sFlash.sData.u32param & E_APPCONF_OPT_EVENT_INTEGRATION) != 0)
 
 #define END_INPUT 0
 #define END_ADC 1
@@ -126,13 +128,15 @@ PRSEV_HANDLER_DEF(E_STATE_RUNNING, tsEvent *pEv, teEvent eEvent, uint32 u32evarg
 		uint8	au8Data[64];
 		q = au8Data;
 
+		uint8 u8Event = (sAppData.u8LID&0x80) ? 1:0;
+
 		if( sPALData.u8EEPROMStatus != 0 ){
-			S_OCTET(4);		// データ数
+			S_OCTET(4+u8Event);		// データ数
 			S_OCTET(0x32);
 			S_OCTET(0x00);
 			S_OCTET( sPALData.u8EEPROMStatus );
 		}else{
-			S_OCTET(3);		// データ数
+			S_OCTET(3+u8Event);		// データ数
 		}
 
 		S_OCTET(0x30);					// 電源電圧
@@ -146,6 +150,16 @@ PRSEV_HANDLER_DEF(E_STATE_RUNNING, tsEvent *pEv, teEvent eEvent, uint32 u32evarg
 		S_OCTET(0x00);			// HALL IC
 		S_OCTET(0x00);			// 予約領域
 		S_OCTET(DI_Bitmap | (sAppData.bWakeupByButton?0x00:0x80) );
+
+		if(u8Event){
+			S_OCTET(0x05);					// Acceleration Event
+			S_OCTET(0x00);
+			uint8 Event = DI_Bitmap;
+			if( IS_APPCONF_OPT_EVENT_INTEGRATION() ){
+				Event = DI_Bitmap ? 1:0;
+			}
+			S_OCTET( Event );
+		}
 
 		bOk = bTransmitToParent( sAppData.pContextNwk, au8Data, q-au8Data );
 

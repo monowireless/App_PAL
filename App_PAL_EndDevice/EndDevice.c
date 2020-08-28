@@ -41,6 +41,7 @@
  * アプリケーションごとの振る舞いを記述するための関数テーブル
  */
 tsCbHandler *psCbHandler = NULL;
+tsCbHandler *psCbHandler_Sub = NULL;
 
 /****************************************************************************/
 /***        Type Definitions                                              ***/
@@ -75,6 +76,7 @@ tsPALData sPALData;
 uint8 u8PowerUp;
 
 void *pvProcessEv;
+void *pvProcessEv_Sub;
 void (*pf_cbProcessSerialCmd)(tsSerCmd_Context *);
 
 /****************************************************************************/
@@ -144,6 +146,9 @@ void cbAppColdStart(bool_t bAfterAhiInit) {
 		// Other Hardware
 		vInitHardware(FALSE);
 
+		// IDが初期値ならDIPスイッチの値を使用する
+		sAppData.u8LID = (sAppData.sFlash.sData.u8id==0) ? ((sAppData.u8DIPSW&0x07)+1+(sAppData.u8DIPSW&0x08?0x80:0)):sAppData.sFlash.sData.u8id+(sAppData.u8DIPSW&0x08?0x80:0);
+
 		if ( sAppData.bConfigMode ) {
 			// 設定モードで起動
 			vInitAppConfig();
@@ -188,8 +193,21 @@ void cbAppColdStart(bool_t bAfterAhiInit) {
 
 			// ADC の初期化
 			vInitADC();
-			vInitAppMOT();
+
+			if( sAppData.sFlash.sData.u32param&0x00010000 ){
+				vInitAppMOT_Event();
+			}else{
+				vInitAppMOT();
+			}
 		} else	
+		if ( sAppData.u8SnsID == PKT_ID_LED) {
+			sToCoNet_AppContext.u8MacInitPending = TRUE; // 起動時の MAC 初期化を省略する(送信する時に初期化する)
+			sToCoNet_AppContext.bSkipBootCalib = FALSE; // 起動時のキャリブレーションを行う
+
+			// ADC の初期化
+			vInitADC();
+			vInitAppLED();
+		}else
 	    {
 			;
 		} // 終端の else 節
@@ -197,6 +215,9 @@ void cbAppColdStart(bool_t bAfterAhiInit) {
 		// イベント処理関数の登録
 		if (pvProcessEv) {
 			ToCoNet_Event_Register_State_Machine(pvProcessEv);
+		}
+		if (pvProcessEv_Sub) {
+			ToCoNet_Event_Register_State_Machine(pvProcessEv_Sub);
 		}
 
 		// ToCoNet DEBUG
@@ -216,6 +237,7 @@ void cbAppWarmStart(bool_t bAfterAhiInit) {
 
 		sAppData.bWakeupByButton = FALSE;
 		uint32 u32WakeStatus = u32AHI_DioWakeStatus();
+		sAppData.u8WakeupByTimer = u8AHI_WakeTimerFiredStatus();
 //		if( u8AHI_WakeTimerFiredStatus() ){
 //		} else
 		if( u32WakeStatus & u32DioPortWakeUp ) {
@@ -229,7 +251,6 @@ void cbAppWarmStart(bool_t bAfterAhiInit) {
 				FALSE,
 				FALSE,
 				FALSE);
-
 
 		// 他のハードの待ち
 		Interactive_vReInit();
@@ -260,14 +281,21 @@ void cbToCoNet_vMain(void) {
 	if (psCbHandler && psCbHandler->pf_cbToCoNet_vMain) {
 		(*psCbHandler->pf_cbToCoNet_vMain)();
 	}
+	if (psCbHandler_Sub && psCbHandler_Sub->pf_cbToCoNet_vMain) {
+		(*psCbHandler_Sub->pf_cbToCoNet_vMain)();
+	}
 }
 
 /**
  * 受信処理
  */
 void cbToCoNet_vRxEvent(tsRxDataApp *pRx) {
+	V_PRINTF(LB ">>> Rx tick=%d <<<", u32TickCount_ms & 0xFFFF);
 	if (psCbHandler && psCbHandler->pf_cbToCoNet_vRxEvent) {
 		(*psCbHandler->pf_cbToCoNet_vRxEvent)(pRx);
+	}
+	if (psCbHandler_Sub && psCbHandler_Sub->pf_cbToCoNet_vRxEvent) {
+		(*psCbHandler_Sub->pf_cbToCoNet_vRxEvent)(pRx);
 	}
 }
 
@@ -288,6 +316,9 @@ void cbToCoNet_vTxEvent(uint8 u8CbId, uint8 bStatus) {
 	if (psCbHandler && psCbHandler->pf_cbToCoNet_vTxEvent) {
 		(*psCbHandler->pf_cbToCoNet_vTxEvent)(u8CbId, bStatus);
 	}
+	if (psCbHandler_Sub && psCbHandler_Sub->pf_cbToCoNet_vTxEvent) {
+		(*psCbHandler_Sub->pf_cbToCoNet_vTxEvent)(u8CbId, bStatus);
+	}
 
 	return;
 }
@@ -300,6 +331,9 @@ void cbToCoNet_vTxEvent(uint8 u8CbId, uint8 bStatus) {
 void cbToCoNet_vNwkEvent(teEvent eEvent, uint32 u32arg) {
 	if (psCbHandler && psCbHandler->pf_cbToCoNet_vNwkEvent) {
 		(*psCbHandler->pf_cbToCoNet_vNwkEvent)(eEvent, u32arg);
+	}
+	if (psCbHandler_Sub && psCbHandler_Sub->pf_cbToCoNet_vNwkEvent) {
+		(*psCbHandler_Sub->pf_cbToCoNet_vNwkEvent)(eEvent, u32arg);
 	}
 }
 
@@ -318,6 +352,9 @@ void cbToCoNet_vHwEvent(uint32 u32DeviceId, uint32 u32ItemBitmap) {
 	if (psCbHandler && psCbHandler->pf_cbToCoNet_vHwEvent) {
 		(*psCbHandler->pf_cbToCoNet_vHwEvent)(u32DeviceId, u32ItemBitmap);
 	}
+	if (psCbHandler_Sub && psCbHandler_Sub->pf_cbToCoNet_vHwEvent) {
+		(*psCbHandler_Sub->pf_cbToCoNet_vHwEvent)(u32DeviceId, u32ItemBitmap);
+	}
 }
 
 /**
@@ -327,6 +364,9 @@ uint8 cbToCoNet_u8HwInt(uint32 u32DeviceId, uint32 u32ItemBitmap) {
 	bool_t bRet = FALSE;
 	if (psCbHandler && psCbHandler->pf_cbToCoNet_u8HwInt) {
 		bRet = (*psCbHandler->pf_cbToCoNet_u8HwInt)(u32DeviceId, u32ItemBitmap);
+	}
+	if (psCbHandler_Sub && psCbHandler_Sub->pf_cbToCoNet_u8HwInt) {
+		bRet = (*psCbHandler_Sub->pf_cbToCoNet_u8HwInt)(u32DeviceId, u32ItemBitmap);
 	}
 	return bRet;
 }
@@ -338,7 +378,7 @@ static void vInitADC() {
 	// ADC
 	vADC_Init(&sAppData.sObjADC, &sAppData.sADC, TRUE);
 	// 初期化待ち
-	vADC_WaitInit();
+	//vADC_WaitInit();
 
 	sAppData.u8AdcState = 0xFF; // 初期化中
 	sAppData.sObjADC.u8SourceMask = TEH_ADC_SRC_VOLT | TEH_ADC_SRC_ADC_1;
@@ -437,7 +477,8 @@ static void vInitHardware(int f_warm_start)
 				vAHI_SwReset();		// Rebootする
 			}
 		}else{
-			sAppData.u8SnsID = PKT_ID_NOCONNECT;
+			//sAppData.u8SnsID = PKT_ID_NOCONNECT;
+			sAppData.u8SnsID = PKT_ID_MOT;
 		}
 	}
 
@@ -485,13 +526,14 @@ static void vInitHardware(int f_warm_start)
 			}
 		}
 
-		//u32DioPortWakeUp = 1UL<<INPUT_SWSET;
+		u32DioPortWakeUp = 1UL<<INPUT_SWSET;
 
 		switch(sAppData.u8SnsID){
 			case PKT_ID_NOCONNECT:
 				vPortDisablePullup(0);
 				vPortDisablePullup(1);
 
+				vAHI_DioSetPullup(1UL << (13), 0x00);
 				vPortAsInput(13);
 				vPortAsInput(11);
 				vPortAsInput(16);
@@ -512,6 +554,15 @@ static void vInitHardware(int f_warm_start)
 				u32DioPortWakeUp |= (1UL<<SNS_INT);
 				break;
 			case PKT_ID_MOT:
+				vPortDisablePullup(SNS_INT);
+				vPortAsInput(SNS_INT);
+				u32DioPortWakeUp |= (1UL<<SNS_INT);
+				break;
+			case PKT_ID_LED:
+				vPortSetHi(SNS_EN);
+				vPortDisablePullup(SNS_EN);
+				vPortAsOutput(SNS_EN);
+
 				vPortDisablePullup(SNS_INT);
 				vPortAsInput(SNS_INT);
 				u32DioPortWakeUp |= (1UL<<SNS_INT);
@@ -556,8 +607,8 @@ void vSerialInit(uint32 u32Baud, tsUartOpt *pUartOpt) {
 void vSerInitMessage() {
 	A_PRINTF(LB LB"!INF MONO WIRELESS APP_PAL(EndDevice) V%d-%02d-%d", VERSION_MAIN, VERSION_SUB, VERSION_VAR);
 	A_FLUSH();
-	A_PRINTF(LB"!INF AID:%08x,SID:%08x,LID:%02d,PID:%02x",
-			sToCoNet_AppContext.u32AppId, ToCoNet_u32GetSerial(), sAppData.sFlash.sData.u8id, sPALData.u8PALModel);
+	A_PRINTF(LB"!INF AID:%08x,SID:%08x,LID:%02x,PID:%02x",
+			sToCoNet_AppContext.u32AppId, ToCoNet_u32GetSerial(), sAppData.u8LID, sPALData.u8PALModel);
 	A_FLUSH();
 	A_PRINTF(LB"!INF DIO --> %020b", sAppData.u32DIO_startup);
 	if (sAppData.bFlashLoaded == 0) {

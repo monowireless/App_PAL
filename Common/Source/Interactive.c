@@ -382,16 +382,27 @@ static void vProcessInputByte(uint8 u8Byte) {
 				E_APPCONF_ENC_KEY);
 		break;
 
+#ifdef ENDDEVICE
+	case 'e':
+		V_PRINTF("Notice PAL Action(s) Each Event");
+		V_PRINTF(LB"    IIRGBWPT");
+		V_PRINTF(LB"        II : EventID (0x00-0x10)");
+		V_PRINTF(LB"         R : RED     (0x0-0xF)");
+		V_PRINTF(LB"         G : GREEN   (0x00-0xF)");
+		V_PRINTF(LB"         B : BLUE    (0x00-0xF)");
+		V_PRINTF(LB"         W : WHITE   (0x00-0xF)");
+		V_PRINTF(LB"         P : Blink Pattern (0x0-0x3)");
+		V_PRINTF(LB"         T : Time to turn off(Sec) (0x0-0xF)");
+		V_PRINTF(LB"(e.g. 000000000140701A): ");
+		INPSTR_vStart(&sSerInpStr, E_INPUTSTRING_DATATYPE_STRING, 136, E_APPCONF_EVENT);
+		break;
+#endif
 	case 'S':
 		// フラッシュへのデータ保存
 		if (u8lastbyte == 'R') {
 			// R S と連続入力された場合は、フラッシュエリアを消去する
 			V_PRINTF("!INF CLEAR SAVE AREA.");
-#ifdef ENDDEVICE
-			bFlash_Erase(sAppData.u8SettingsID); // SECTOR ERASE
-#else
 			bFlash_Erase(0); // SECTOR ERASE
-#endif
 		} else {
 			bool_t bRet = Config_bSave();
 			V_PRINTF("!INF FlashWrite %s"LB, bRet ? "Success" : "Failed");
@@ -740,6 +751,23 @@ static void vProcessInputString(tsInpStr_Context *pContext) {
 		}
 		break;
 
+#ifdef ENDDEVICE
+	case E_APPCONF_EVENT:
+		_C{
+			uint8 u8len = strlen((void*)pu8str);
+			if( (u8len&0x07) != 0 ){
+				// 8の倍数じゃなければ無視
+				V_PRINTF("(ignored)");
+			}else{
+				memset( sConfig_UnSaved.au8Event, 0, 137 );
+				memcpy( sConfig_UnSaved.au8Event, pu8str, u8len );
+				sConfig_UnSaved.u8EventNum = u8len>>3;
+			}
+
+		}
+		break;
+#endif
+
 	default:
 		break;
 	}
@@ -758,11 +786,7 @@ static void vProcessInputString(tsInpStr_Context *pContext) {
 bool_t Config_bLoad(tsFlash *p) {
 	// フラッシュの読み出し
 	bool_t bRet = TRUE;
-#ifdef ENDDEVICE
-	bRet &= bFlash_Read(p, sAppData.u8SettingsID, 0);
-#else
 	bRet &= bFlash_Read(p, 0, 0);
-#endif
 
 	// Version String のチェック
 	if (bRet && APP_ID == p->sData.u32appkey  && VERSION_U32 == p->sData.u32ver) {
@@ -889,6 +913,11 @@ static void vConfig_Update(tsFlashApp *pTemp) {
 	if ( sConfig_UnSaved.u32param != 0xFFFFFFFF) {
 		pTemp->u32param = sConfig_UnSaved.u32param;
 	}
+	if( sConfig_UnSaved.au8Event[136] != 0xFF ){
+		memset(pTemp->au8Event, 0, 137);
+		memcpy(pTemp->au8Event, sConfig_UnSaved.au8Event, sConfig_UnSaved.u8EventNum*8);
+		pTemp->u8EventNum = sConfig_UnSaved.u8EventNum;
+	}
 #endif
 #ifdef ROUTER
 	if (sConfig_UnSaved.u8layer != 0xFF) {
@@ -911,11 +940,7 @@ bool_t Config_bSave() {
 	sFlash.sData.u32ver = VERSION_U32;
 
 	bool_t bRet = TRUE;
-#ifdef ENDDEVICE
-	bRet &= bFlash_Write(&sFlash, sAppData.u8SettingsID, 0);
-#else
 	bRet &= bFlash_Write(&sFlash, 0, 0);
-#endif
 
 	// sAppData へ反映
 	sAppData.sFlash.sData = sFlash.sData;
@@ -940,11 +965,12 @@ static void vSerUpdateScreen() {
 	V_PRINTF(
 			"--- CONFIG/" APP_NAME " V%d-%02d-%d/SID=0x%08x/LID=0x%02x",
 			VERSION_MAIN, VERSION_SUB, VERSION_VAR, ToCoNet_u32GetSerial(),
-			sAppData.sFlash.sData.u8id);
-
 #ifdef ENDDEVICE
+			sAppData.u8LID);
 	V_PRINTF( "/RC=%d", sAppData.sFlash.sData.u16RcClock);
 	V_PRINTF( "/ST=%d", sAppData.u8SettingsID );
+#else
+			sAppData.sFlash.sData.u8id);
 #endif
 
 	V_PRINTF(" ---"LB);
@@ -1052,6 +1078,12 @@ static void vSerUpdateScreen() {
 	V_PRINTF(" p: set Senser Parameter (0x%08X)%c" LB,
 			FL_IS_MODIFIED_u32(param) ? FL_UNSAVE_u32(param) : FL_MASTER_u32(param),
 			FL_IS_MODIFIED_u32(param) ? '*' : ' ');
+
+	V_PRINTF(" e: set Event Parameter(s) (%s)%c" LB,
+			(sConfig_UnSaved.au8Event[136] != 0xFF) ? sConfig_UnSaved.au8Event : sAppData.sFlash.sData.au8Event,
+			(sConfig_UnSaved.au8Event[136] != 0xFF) ? '*' : ' '
+			);
+
 #endif
 
 	V_PRINTF("---"LB);

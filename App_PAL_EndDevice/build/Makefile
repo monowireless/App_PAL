@@ -29,6 +29,8 @@ APPSRC += SPI.c
 APPSRC += SHTC3.c
 APPSRC += LTR308ALS.c
 APPSRC += MC3630.c
+APPSRC += PCA9632.c
+APPSRC += accel_event.c
 APPSRC += sensor_driver.c
 
 APPSRC += AddrKeyAry.c
@@ -44,6 +46,9 @@ APPSRC += ProcessEv_NOC.c
 APPSRC += ProcessEv_MAG.c
 APPSRC += ProcessEv_AMB.c
 APPSRC += ProcessEv_MOT.c
+APPSRC += ProcessEv_MOT_Event.c
+APPSRC += ProcessEv_Accel_Event.c
+APPSRC += ProcessEv_LED.c
 APPSRC += ProcessEv_Config.c
 
 ### Additional Src/Include Path

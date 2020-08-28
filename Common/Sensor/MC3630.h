@@ -76,6 +76,7 @@ extern "C" {
 #define MC3630_RANGE4G          (0x10)
 #define MC3630_RANGE8G          (0x20)
 #define MC3630_RANGE16G         (0x30)
+#define MC3630_RANGE12G         (0x40)
 
 /****************************************************************************/
 /***        Type Definitions                                              ***/
@@ -89,6 +90,10 @@ typedef struct {
 	int16	ai16Result[3][32];
 	uint8	u8Interrupt;
 	uint8	u8SampleFreq;
+
+	uint8	u8Event;
+
+	bool_t	bFinished;
 
 	// working
 	uint8	u8TickCount, u8TickWait;
@@ -110,7 +115,12 @@ PUBLIC void vMC3630_ClearInterrupReg();
 PUBLIC uint8 u8MC3630_ReadSamplingFrequency();
 PUBLIC void vMC3630_Wakeup();
 PUBLIC void vMC3630_Sleep();
-
+PUBLIC void vMC3630_SetWakeAGAIN(uint8 u8num);
+PUBLIC void vMC3630_SetSniffAGAIN(uint8 u8num);
+PUBLIC void vMC3630_SniffThreshold( uint8 u8axis, uint8 u8value );
+PUBLIC void vMC3630_SniffCount( uint8 u8axis, uint8 u8value );
+PUBLIC void vMC3630_StartSNIFF( uint8 u8th, uint8 u8count );
+PUBLIC void vMC3630_StartFIFO( void );
 
 /****************************************************************************/
 /***        Exported Variables                                            ***/

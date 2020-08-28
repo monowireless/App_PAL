@@ -92,7 +92,7 @@ void vADC_Init(tsObjData_ADC *pData, tsSnsObj *pSnsObj, bool_t bInitAPR) {
 							 E_AHI_AP_SAMPLE_2,
 							 E_AHI_AP_CLOCKDIV_500KHZ,
 							 E_AHI_AP_INTREF);
-
+			vADC_WaitInit();
 		}
 	}
 }

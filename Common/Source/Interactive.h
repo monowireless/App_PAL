@@ -121,6 +121,7 @@ enum {
 	E_APPCONF_SER_MODE,    //!< センサの設定
 	E_APPCONF_SER_PARAM,    //!< センサの固有のパラメータの設定
 	E_APPCONF_PARAM,    //!< センサの固有のパラメータの設定
+	E_APPCONF_EVENT,    //!< LED PAL のイベント発生時のパラメータを指定する
 	E_APPCONF_TEST
 };
 

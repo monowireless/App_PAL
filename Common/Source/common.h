@@ -32,7 +32,8 @@ extern uint32 u32DioPortWakeUp;
 #define PKT_ID_MAG 0x01
 #define PKT_ID_AMB 0x02
 #define PKT_ID_MOT 0x03
-#define PKT_ID_IRC 0x04
+#define PKT_ID_LED 0x04
+#define PKT_ID_IRC 0x05
 
 /*
  * パケット識別子 (App_Tag)

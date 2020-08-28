@@ -33,6 +33,9 @@ typedef struct _tsFlashApp {
 	uint16 u16RcClock;		//!< RCクロックキャリブレーション
 
 	uint32 u32param;		//!< 選択したセンサ特有のパラメータ
+
+	uint8 au8Event[137];		//!< イベントの内容
+	uint8 u8EventNum;		//!< 設定したイベントの数
 } tsFlashApp;
 
 

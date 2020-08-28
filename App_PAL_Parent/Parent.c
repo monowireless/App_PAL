@@ -52,6 +52,32 @@
 /****************************************************************************/
 /***        Type Definitions                                              ***/
 /****************************************************************************/
+typedef struct{
+	bool_t	bCommand;			// コマンドを子機に送信する場合はTRUE
+	uint8	u8Identifier;		// データ識別子(LED or IRC)
+	uint16	u16RGBW;			// 各色の輝度
+	uint8	u8BlinkCycle;		// 点滅周期
+	uint8	u8BlinkDuty;		// 点滅デューティ
+	uint8	u8LightsOutCycle;	// 消灯時間
+	uint8	u8IRCID;			// IRCのコマンドID
+	uint8	u8Count;			// シーケンス番号
+}tsRecvSerCmd;
+
+uint8 au8Color[9][4] = {
+//	 R, G, B, W
+	{1, 1, 1, 0},
+	{1, 0, 0, 0},
+	{0, 1, 0, 0},
+	{0, 0, 1, 0},
+	{1, 1, 0, 0},
+	{1, 0, 1, 0},
+	{0, 1, 1, 0},
+	{0, 0, 0, 1},
+	{1, 1, 1, 1}
+};
+
+uint8 au8BlinkDuty[4] = { 0, 0x7F, 0x3F, 0x20 };
+uint8 au8BlinkCycle[4] = { 0, 0x17, 0x17, 0x2F };
 
 /****************************************************************************/
 /***        Local Function Prototypes                                     ***/
@@ -66,6 +92,7 @@ void vSerOutput_Tag(tsRxPktInfo sRxPktInfo, uint8 *p);
 void vSerInitMessage();
 void vProcessSerialCmd(tsSerCmd_Context *pCmd);
 
+bool_t bResponsePkt(tsRxPktInfo sRxPktInfo);
 void vLED_Toggle( void );
 
 /****************************************************************************/
@@ -78,6 +105,7 @@ void vLED_Toggle( void );
 tsAppData_Pa sAppData; // application information
 tsFILE sSerStream; // serial output context
 tsSerialPortSetup sSerPort; // serial port queue
+tsRecvSerCmd sRecvSerCmd[101];
 
 tsSerCmd_Context sSerCmdOut; //!< シリアル出力用
 
@@ -508,10 +536,11 @@ void vSerOutput_PAL(tsRxPktInfo sRxPktInfo, uint8 *p) {
 	S_OCTET(0x80);
 	S_OCTET(sRxPktInfo.u8pkt);
 
+
 	uint8 u8Length = G_OCTET();
 	S_OCTET(u8Length);
-	uint8 i = 0;
 
+	uint8 i = 0;
 	while( i<u8Length ){
 		uint8 u8Sensor = G_OCTET();
 
@@ -525,6 +554,22 @@ void vSerOutput_PAL(tsRxPktInfo sRxPktInfo, uint8 *p) {
 					S_OCTET(0x00);
 					S_OCTET(0x01);
 					S_OCTET(u8Status);
+
+					if(sRecvSerCmd[sRxPktInfo.u8id].bCommand == FALSE){
+						uint8 u8Color = (sRxPktInfo.u8id>7) ? 8:sRxPktInfo.u8id;
+						if( (u8Status&0x7F) == 0 ){
+							sRecvSerCmd[sRxPktInfo.u8id].u16RGBW = 0;
+						}else{
+							sRecvSerCmd[sRxPktInfo.u8id].u16RGBW = (au8Color[u8Color][0]*4);
+							sRecvSerCmd[sRxPktInfo.u8id].u16RGBW |= (au8Color[u8Color][1]*4)<<4;
+							sRecvSerCmd[sRxPktInfo.u8id].u16RGBW |= (au8Color[u8Color][2]*4)<<8;
+							sRecvSerCmd[sRxPktInfo.u8id].u16RGBW |= (au8Color[u8Color][3]*4)<<12;
+						}
+						sRecvSerCmd[sRxPktInfo.u8id].u8BlinkCycle = au8BlinkCycle[0];
+						sRecvSerCmd[sRxPktInfo.u8id].u8BlinkDuty = au8BlinkDuty[0];
+						sRecvSerCmd[sRxPktInfo.u8id].u8LightsOutCycle = 0;
+						sRecvSerCmd[sRxPktInfo.u8id].u8Identifier = PKT_ID_LED;
+					}
 				}
 				break;
 			case TEMP:
@@ -543,6 +588,31 @@ void vSerOutput_PAL(tsRxPktInfo sRxPktInfo, uint8 *p) {
 						S_OCTET(0x00);
 						S_OCTET(0x02);
 						S_BE_WORD(i16temp);
+
+						if(sRecvSerCmd[sRxPktInfo.u8id].bCommand == FALSE){
+							uint8 u8Color = 0;
+							// 色
+							if( i16temp < 1000 ){
+								u8Color = 3;
+							}else if( i16temp < 1500 ) {
+								u8Color = 6;
+							}else if( i16temp > 3000 ) {
+								u8Color = 1;
+							}else if( i16temp > 2500 ) {
+								u8Color = 4;
+							}else{
+								u8Color = 2;
+							}
+
+							sRecvSerCmd[sRxPktInfo.u8id].u16RGBW = (au8Color[u8Color][0]*8);
+							sRecvSerCmd[sRxPktInfo.u8id].u16RGBW |= (au8Color[u8Color][1]*8)<<4;
+							sRecvSerCmd[sRxPktInfo.u8id].u16RGBW |= (au8Color[u8Color][2]*8)<<8;
+							sRecvSerCmd[sRxPktInfo.u8id].u16RGBW |= (au8Color[u8Color][3]*8)<<12;
+							sRecvSerCmd[sRxPktInfo.u8id].u8BlinkCycle = au8BlinkCycle[3];
+							sRecvSerCmd[sRxPktInfo.u8id].u8BlinkDuty = au8BlinkDuty[3];
+							sRecvSerCmd[sRxPktInfo.u8id].u8LightsOutCycle = 0;
+							sRecvSerCmd[sRxPktInfo.u8id].u8Identifier = PKT_ID_LED;
+						}
 					}
 				}
 				break;
@@ -570,7 +640,7 @@ void vSerOutput_PAL(tsRxPktInfo sRxPktInfo, uint8 *p) {
 					uint8 u8num = G_OCTET();(void)u8num;
 					uint32 u32illum = G_BE_DWORD();
 
-          	    	if(u32illum == 0xFFFFFFFE || u32illum == 0xFFFFFFFF ){
+					if(u32illum == 0xFFFFFFFE || u32illum == 0xFFFFFFFF ){
 						S_OCTET(ERROR|((u32illum == 0xFFFFFFFE)?0x01:0x00));
 						S_OCTET(u8Sensor);
 						S_OCTET(0x00);
@@ -605,7 +675,7 @@ void vSerOutput_PAL(tsRxPktInfo sRxPktInfo, uint8 *p) {
 						tmp = G_OCTET(); X[1] |= tmp;
 						tmp = G_OCTET(); Y[1] = tmp<<4;
 						tmp = G_OCTET(); Y[1] |= (tmp>>4); Z[1] = (tmp&0x0F)<<8;
-                    	tmp = G_OCTET(); Z[1] |= tmp;
+						tmp = G_OCTET(); Z[1] |= tmp;
 
 						uint8 k;
 						for( k=0; k<2; k++ ){
@@ -694,6 +764,11 @@ void vSerOutput_PAL(tsRxPktInfo sRxPktInfo, uint8 *p) {
 	}
 	uint8 u8crc = u8CCITT8( u8buff, q-u8buff );
 	S_OCTET(u8crc);
+
+	// LED PALからだったら送り返す
+	if( (sRxPktInfo.u8pkt&0x1F) == PKT_ID_LED){
+		bResponsePkt(sRxPktInfo);
+	}
 
 	sSerCmdOut.u16len = q - u8buff;
 	sSerCmdOut.au8data = u8buff;
@@ -1201,7 +1276,126 @@ void vProcessSerialCmd(tsSerCmd_Context *pCmd) {
 		V_PRINTF("...");
 	}
 
+	if( pCmd->u16len > 2 ){
+		uint8* p = pCmd->au8data;
+		uint8 u8id = G_OCTET();
+		uint8 u8command = G_OCTET();
+
+		switch(u8command){
+			case 0x8A:
+				// 論理デバイスIDのチェック
+				if(u8id == 0x78){
+					u8id = 0;
+				}else if(u8id > 100){
+					// IDが100以上だったら処理をやめる
+					return;
+				}
+
+				// コマンド数のチェック
+				uint8 u8comnum = G_OCTET();
+				if((pCmd->u16len-3)>>2 != u8comnum){
+					return;
+				}else{
+					uint8 i = 0;
+					while ( i < u8comnum )
+					{
+						uint32 u32com = G_BE_DWORD();
+						switch (u32com&0xFF)
+						{
+						case 0x01:
+							_C{
+								uint8 u8Color = (u32com&0xFF00)>>8;
+								uint8 u8Blink = (u32com&0xFF0000)>>16;
+								uint8 u8Bright = (u32com&0xFF000000)>>24;
+								if( u8Bright > 15 ) u8Bright = 15;
+								sRecvSerCmd[u8id].u16RGBW = (au8Color[u8Color][0]*u8Bright);
+								sRecvSerCmd[u8id].u16RGBW |= (au8Color[u8Color][1]*u8Bright)<<4;
+								sRecvSerCmd[u8id].u16RGBW |= (au8Color[u8Color][2]*u8Bright)<<8;
+								sRecvSerCmd[u8id].u16RGBW |= (au8Color[u8Color][3]*u8Bright)<<12;
+								sRecvSerCmd[u8id].u8BlinkCycle = au8BlinkCycle[u8Blink];
+								sRecvSerCmd[u8id].u8BlinkDuty = au8BlinkDuty[u8Blink];
+								sRecvSerCmd[u8id].bCommand = TRUE;
+								sRecvSerCmd[u8id].u8Identifier = PKT_ID_LED;
+							}
+							break;
+						case 0x02:
+							sRecvSerCmd[u8id].u8LightsOutCycle = (u32com&0xFF000000)>>24;
+							sRecvSerCmd[u8id].bCommand = TRUE;
+							sRecvSerCmd[u8id].u8Identifier = PKT_ID_LED;
+							break;
+						case 0xFF:
+							sRecvSerCmd[u8id].bCommand = FALSE;
+							break;
+						
+						default:
+							break;
+						}
+					}								
+				}
+				break;
+			default:
+				break;
+		}
+
+	}
+
+
 	return;
+}
+
+bool_t bResponsePkt(tsRxPktInfo sRxPktInfo)
+{
+	uint8 u8id = (sRxPktInfo.u8id==0x78) ? 0 : sRxPktInfo.u8id;
+	if( u8id > 100 ){
+		return FALSE;
+	}
+
+	sRecvSerCmd[u8id].u8Count++;
+
+	tsTxDataApp sTx;
+	memset(&sTx, 0, sizeof(sTx)); // 必ず０クリアしてから使う！
+	uint8 *q =  sTx.auData;
+
+	sTx.u32SrcAddr = ToCoNet_u32GetSerial();
+	sTx.u32DstAddr = sRxPktInfo.u32addr_1st;
+
+	S_OCTET('P'+0x80);
+	S_OCTET(121);
+	S_BE_WORD(sRecvSerCmd[u8id].u8Count);
+	S_OCTET(1);			// Version番号ということにする
+
+	S_OCTET( sRxPktInfo.u8pkt&0x1F );
+	if( sRecvSerCmd[u8id].u8Identifier == (sRxPktInfo.u8pkt&0x1F) ){
+		if(sRecvSerCmd[u8id].u8Identifier == PKT_ID_LED){
+			S_BE_WORD(sRecvSerCmd[u8id].u16RGBW);
+			S_OCTET(sRecvSerCmd[u8id].u8BlinkCycle);
+			S_OCTET(sRecvSerCmd[u8id].u8BlinkDuty);
+			S_OCTET(sRecvSerCmd[u8id].u8LightsOutCycle);
+		}else{
+			S_OCTET(0xFE);
+		}
+	}else{
+		S_OCTET(0xFF);
+	}
+
+	sTx.u16RetryDur = 0; // 再送間隔
+	sTx.u16DelayMin = 4; // 衝突を抑制するため送信タイミングを遅らせる
+	sTx.u16DelayMax = 8; // 衝突を抑制するため送信タイミングを遅らせる
+
+	sTx.u8Cmd = 0; // 0..7 の値を取る。パケットの種別を分けたい時に使用する
+	sTx.u8Len = q - sTx.auData; // パケットのサイズ
+	sTx.u8CbId = sRecvSerCmd[u8id].u8Count; // TxEvent で通知される番号、送信先には通知されない
+	sTx.u8Seq = sRecvSerCmd[u8id].u8Count; // シーケンス番号(送信先に通知される)
+	sTx.u8Retry = sAppData.sFlash.sData.u8pow>>4;	
+
+	if(ToCoNet_bMacTxReq(&sTx)){
+		if(sTx.u16DelayMax == 0){
+			ToCoNet_Tx_vProcessQueue(); // 送信処理をタイマーを待たずに実行する
+		}
+		return TRUE;
+	}
+
+	return FALSE;
 }
 
 /**

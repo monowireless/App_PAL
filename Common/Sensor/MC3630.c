@@ -22,9 +22,13 @@
 #ifdef SERIAL_DEBUG
 # include <serial.h>
 # include <fprintf.h>
-extern tsFILE sDebugStream;
+//extern tsFILE sDebugStream;
 #endif
-tsFILE sSerStream;
+extern tsFILE sSerStream;
+tsFILE sDebugStream;
+
+bool_t bFIFO = TRUE;
+uint8 u8Samples;
 
 /****************************************************************************/
 /***        Macro Definitions                                             ***/
@@ -59,6 +63,8 @@ void vMC3630_Init(tsObjData_MC3630 *pData, tsSnsObj *pSnsObj) {
 
 	memset((void*)pData, 0, sizeof(tsObjData_MC3630));
 
+	sDebugStream = sSerStream;
+
 	// SPIの初期化
 	vSPIInit( SPI_MODE3, SLAVE_ENABLE1, 1);
 }
@@ -76,7 +82,8 @@ void vMC3630_Init(tsObjData_MC3630 *pData, tsSnsObj *pSnsObj) {
 //	リセットというよりは初期化処理
 PUBLIC bool_t bMC3630_reset( uint8 Freq, uint8 Range, uint8 SplNum )
 {
-	bool_t bOk = TRUE;
+
+	u8Samples = SplNum;
 
     /* configure SPI interface */
 	/*	SPI Mode3	*/
@@ -85,111 +92,63 @@ PUBLIC bool_t bMC3630_reset( uint8 Freq, uint8 Range, uint8 SplNum )
 	// Standby
 	vMC3630_Sleep();
 
-	// Reset
-	vSPIChipSelect(CS_DIO19);
-	vSPIWrite(MC3630_RESET | MC3630_WRITE);
-	vSPIWrite(0x40);
-	vSPIStop();
+	vSPIWrite8(CS_DIO19, 0x10|MC3630_WRITE, 0x01);
 
-	// おまじない
-	vSPIChipSelect(CS_DIO19);
-	vSPIWrite(0x1B | MC3630_WRITE);
-	vSPIWrite(0x00);
-	vSPIStop();
+	// Reset
+	vSPIWrite8(CS_DIO19, MC3630_RESET|MC3630_WRITE, 0x40);
+
+	vWait(100000);
+
+	// ここからおまじない
+	vSPIWrite8(CS_DIO19, 0x1B|MC3630_WRITE, 0x00);
 	// Wait
 	vWait(5000);
 
-	// SPIに設定
-	vSPIChipSelect(CS_DIO19);
-	vSPIWrite(MC3630_FREG_1 | MC3630_WRITE);
-	vSPIWrite(0x90);
-	vSPIStop();
-
-	// ここからおまじない
-	vSPIChipSelect(CS_DIO19);
-	vSPIWrite(MC3630_INIT_1 | MC3630_WRITE);
-	vSPIWrite(0x42);
-	vSPIStop();
-
-	vSPIChipSelect(CS_DIO19);
-	vSPIWrite(MC3630_DMX | MC3630_WRITE);
-	vSPIWrite(0x1);
-	vSPIStop();
-
-	vSPIChipSelect(CS_DIO19);
-	vSPIWrite(MC3630_DMY | MC3630_WRITE);
-	vSPIWrite(0x80);
-	vSPIStop();
-
-	vSPIChipSelect(CS_DIO19);
-	vSPIWrite(MC3630_INIT_2 | MC3630_WRITE);
-	vSPIWrite(0x00);
-	vSPIStop();
-
-	vSPIChipSelect(CS_DIO19);
-	vSPIWrite(MC3630_INIT_3 | MC3630_WRITE);
-	vSPIWrite(0x00);
-	vSPIStop();
+	vSPIWrite8(CS_DIO19, MC3630_STATUS_2|MC3630_WRITE, 0x00);
+	vSPIWrite8(CS_DIO19, MC3630_INIT_1|MC3630_WRITE, 0x42);
+	vSPIWrite8(CS_DIO19, MC3630_DMX|MC3630_WRITE, 0x01);
+	vSPIWrite8(CS_DIO19, MC3630_DMY|MC3630_WRITE, 0x80);
+	vSPIWrite8(CS_DIO19, MC3630_INIT_2|MC3630_WRITE, 0x00);
+	vSPIWrite8(CS_DIO19, MC3630_INIT_3|MC3630_WRITE, 0x00);
 	// ここまでおまじない
 
-	vSPIChipSelect(CS_DIO19);
-	vSPIWrite(MC3630_CHIP_ID | MC3630_READ);
-	vSPIWrite(0x00);
-	uint8 u8Result = u8SPIRead();
-	vSPIStop();
+	// 接続確認
+	uint8 u8Result = u8SPIRead8( CS_DIO19, MC3630_CHIP_ID | MC3630_READ );
 	if( u8Result != 0x71 ){
-		bOk = FALSE;
 		vfPrintf(&sSerStream, "\n\rMC3630 Not Connected. %02X", u8Result );
+		return FALSE;
 	}
 
 	// 一旦STANBYモードにする
 	vMC3630_Sleep();
 
+	// ここもおまじない( データシートには特に何も書いてないが、サンプルコートには本記述があった。 )
+	vMC3630_SetWakeAGAIN(0x02);
+	vMC3630_SetSniffAGAIN(0x02);
+
+	// I2Cを無効にする
+	vSPIWrite8(CS_DIO19, MC3630_FREG_1|MC3630_WRITE, 0x80);
+
 	// SPIのクロックと加速度計測をUltraLowPowerに変更する
-	vSPIChipSelect(CS_DIO19);
-	vSPIWrite(MC3630_PMCR | MC3630_WRITE);
-	vSPIWrite(0x80|0x30|0x03);
-	//vSPIWrite(0x30|0x03);
-	vSPIStop();
+	vSPIWrite8(CS_DIO19, MC3630_PMCR|MC3630_WRITE, 0x80|0x30|0x03);
 
 	// SPIをハイスピードモードに変更したのでクロックの周波数を変更する
 	vSPIInit( SPI_MODE3, SLAVE_ENABLE1, 1 );
 
 	// サンプリング周波数
-	vSPIChipSelect(CS_DIO19);
-	vSPIWrite(MC3630_RATE_1 | MC3630_WRITE);
-	vSPIWrite(Freq);
-	vSPIStop();
+	vSPIWrite8(CS_DIO19, MC3630_RATE_1|MC3630_WRITE, Freq);
+	vSPIWrite8(CS_DIO19, MC3630_SNIFF_C|MC3630_WRITE, Freq);
 
 	// レンジを16g、12bitの分解能にする
-	vSPIChipSelect(CS_DIO19);
-	vSPIWrite(MC3630_RANGE_C | MC3630_WRITE);
-	vSPIWrite(Range|0x04);
-	vSPIStop();
-
-
-	// 10サンプルのFIFOを使用する
-	vSPIChipSelect(CS_DIO19);
-	vSPIWrite(MC3630_FIFO_C | MC3630_WRITE);
-	vSPIWrite(0x40|SplNum);
-	vSPIStop();
-
-	// 新しいデータが取れたら割り込み + 割り込みピンをプッシュプルに変える
-	vSPIChipSelect(CS_DIO19);
-	vSPIWrite(MC3630_INTR_C | MC3630_WRITE);
-	vSPIWrite(0x41);
-	vSPIStop();
+	vSPIWrite8(CS_DIO19, MC3630_RANGE_C|MC3630_WRITE, Range|0x04);
 
 	// 読み書きするときのレジスタ指定のところで加速度センサのステータスを返すようにする
-	vSPIChipSelect(CS_DIO19);
-	vSPIWrite(MC3630_FREG_2 | MC3630_WRITE);
-	vSPIWrite(0x04);
-	vSPIStop();
+	vSPIWrite8(CS_DIO19, MC3630_FREG_2|MC3630_WRITE, 0x04);
 
 	// 連続で測定する。
-	//vMC3630_Wakeup();
+	vMC3630_Wakeup();
 
-	return bOk;
+	return TRUE;
 }
 
 /****************************************************************************
@@ -235,7 +194,7 @@ PUBLIC uint8 u8MC3630_readResult( int16* ai16x, int16* ai16y, int16* ai16z )
 		vSPIChipSelect(CS_DIO19);
 	   	vSPIWrite(MC3630_READ|MC3630_XOUT_LSB);
 		u8status = u8SPIRead();
-		if(u8status&0x10){
+		if( (u8status&0x10)){
 			vSPIStop();
 			break;
 		}
@@ -252,60 +211,160 @@ PUBLIC uint8 u8MC3630_readResult( int16* ai16x, int16* ai16y, int16* ai16z )
 		u8num++;
 	}
 
-	
-
 	vMC3630_ClearInterrupReg();
-    return u8num;
+
+	return u8num;
+}
+
+PUBLIC void vMC3630_SetWakeAGAIN(uint8 u8num)
+{
+	vSPIWrite8(CS_DIO19, MC3630_DMX|MC3630_WRITE, 0x01);
+
+	uint8 u8val = u8SPIRead8(CS_DIO19, MC3630_DMY|MC3630_READ);
+
+	u8val &= 0x3F;
+	u8val |= (u8num<<6);
+
+	vSPIWrite8(CS_DIO19, MC3630_DMY|MC3630_WRITE, u8val);
+}
+
+PUBLIC void vMC3630_SetSniffAGAIN(uint8 u8num)
+{
+	vSPIWrite8(CS_DIO19, MC3630_DMX|MC3630_WRITE, 0x00);
+
+	uint8 u8val = u8SPIRead8(CS_DIO19, MC3630_DMY|MC3630_READ);
+
+	u8val &= 0x3F;
+	u8val |= (u8num<<6);
+
+	vSPIWrite8(CS_DIO19, MC3630_DMY|MC3630_WRITE, u8val);
 }
 
 PUBLIC uint8 u8MC3630_ReadSamplingFrequency()
 {
-	vSPIChipSelect(CS_DIO19);
-	vSPIWrite(MC3630_RATE_1 | MC3630_READ);
-	uint8 data = u8SPIRead();
-	vSPIWrite(0x00);
-	data = u8SPIRead();
-	vSPIStop();
-
-	return data;
+	return u8SPIRead8(CS_DIO19, MC3630_RATE_1|MC3630_READ);
 }
 
 PUBLIC uint8 u8MC3630_ReadInterrupt()
 {
-	vSPIChipSelect(CS_DIO19);
-	vSPIWrite( MC3630_STATUS_2|MC3630_READ );
-	uint8 data = u8SPIRead();
-	vSPIWrite( 0x00 );
-	data = u8SPIRead();
-	vSPIStop();
-
-	return data;
+	return u8SPIRead8(CS_DIO19, MC3630_STATUS_2|MC3630_READ);
 }
 
 PUBLIC void vMC3630_ClearInterrupReg()
 {
-	vSPIChipSelect(CS_DIO19);
-	vSPIWrite( MC3630_STATUS_2|MC3630_WRITE );
-	vSPIWrite( 0x00 );
-	vSPIStop();
+	vSPIWrite8(CS_DIO19, MC3630_STATUS_2|MC3630_WRITE, 0x00);
 }
 
 PUBLIC void vMC3630_Wakeup()
 {
-	// 連続で測定する。
-	vSPIChipSelect(CS_DIO19);
-	vSPIWrite(MC3630_MODE_C | MC3630_WRITE);
-	vSPIWrite(0x05);
-	vSPIStop();
+	uint8 u8com = 0x02;
+	if( bFIFO ){
+		u8com = 0x05;
+	}
+
+	vSPIWrite8(CS_DIO19, MC3630_INIT_1|MC3630_WRITE, 0x42);
+	vSPIWrite8(CS_DIO19, MC3630_MODE_C|MC3630_WRITE, u8com);
 }
 
 PUBLIC void vMC3630_Sleep()
 {
-	// 一旦STANBYモードにする
-	vSPIChipSelect(CS_DIO19);
-	vSPIWrite(MC3630_MODE_C | MC3630_WRITE);
-	vSPIWrite(0x01);
-	vSPIStop();
+	vSPIWrite8(CS_DIO19, MC3630_INIT_1|MC3630_WRITE, 0x42);
+	vSPIWrite8(CS_DIO19, MC3630_MODE_C|MC3630_WRITE, 0x01);
+}
+
+PUBLIC void vMC3630_SniffThreshold( uint8 u8axis, uint8 u8value )
+{
+	// 今書かれているレジスタを読み込んでおく
+	uint8 u8val = u8SPIRead8(CS_DIO19, MC3630_SNIFFTH_C|MC3630_READ);
+
+	uint8 u8axis_cfg = 0;
+	switch(u8axis){
+		case MC3630_X:
+			u8axis_cfg = 1;
+			break;
+		case MC3630_Y:
+			u8axis_cfg = 2;
+			break;
+		case MC3630_Z:
+			u8axis_cfg = 3;
+			break;
+		default:
+			return;
+	}
+
+	vSPIWrite8(CS_DIO19, MC3630_SNIFFCF_C|MC3630_WRITE, u8axis_cfg);
+	
+	u8val = (u8val&0xF8)|u8value;
+	vSPIWrite8(CS_DIO19, MC3630_SNIFFTH_C|MC3630_WRITE, u8val);
+}
+
+PUBLIC void vMC3630_SniffCount( uint8 u8axis, uint8 u8value )
+{
+	// 今書かれているレジスタを読み込んでおく
+	uint8 u8val = u8SPIRead8(CS_DIO19, MC3630_SNIFFTH_C|MC3630_READ);
+
+	uint8 u8axis_cfg = 0;
+	switch(u8axis){
+		case MC3630_X:
+			u8axis_cfg = 5;
+			break;
+		case MC3630_Y:
+			u8axis_cfg = 6;
+			break;
+		case MC3630_Z:
+			u8axis_cfg = 7;
+			break;
+		default:
+			return;
+	}
+
+	vSPIWrite8(CS_DIO19, MC3630_SNIFFCF_C|MC3630_WRITE, u8axis_cfg);
+	
+	u8val = (u8val&0xF8)|u8value;
+	vSPIWrite8(CS_DIO19, MC3630_SNIFFTH_C|MC3630_WRITE, u8val);
+}
+
+PUBLIC void vMC3630_StartSNIFF( uint8 u8th, uint8 u8count )
+{
+	bFIFO = FALSE;
+	vMC3630_Sleep();
+
+	vMC3630_SniffThreshold( MC3630_X, u8th );
+	vMC3630_SniffThreshold( MC3630_Y, u8th );
+	vMC3630_SniffThreshold( MC3630_Z, u8th );
+	vMC3630_SniffCount( MC3630_X, u8count );
+	vMC3630_SniffCount( MC3630_Y, u8count );
+	vMC3630_SniffCount( MC3630_Z, u8count );
+
+	uint8 u8val = u8SPIRead8(CS_DIO19, MC3630_SNIFFCF_C|MC3630_READ);
+
+	u8val = u8val&0xBF;
+	vSPIWrite8(CS_DIO19, MC3630_SNIFFTH_C|MC3630_WRITE, u8val);
+
+	u8val = (u8val&0x7F)|0x80;
+	vSPIWrite8(CS_DIO19, MC3630_SNIFFTH_C|MC3630_WRITE, u8val);
+
+	vSPIWrite8(CS_DIO19, MC3630_FIFO_C|MC3630_WRITE, 0x40|u8Samples);
+
+	// FIFOがたまったら割込み + 割り込みピンをプッシュプルに変える
+	vSPIWrite8(CS_DIO19, MC3630_INTR_C|MC3630_WRITE, 0x41);
+
+	vMC3630_Wakeup();
+}
+
+PUBLIC void vMC3630_StartFIFO( void )
+{
+	bFIFO = TRUE;
+
+	vMC3630_Sleep();
+
+	// 新しいデータが取れたら割り込み + 割り込みピンをプッシュプルに変える
+	vSPIWrite8(CS_DIO19, MC3630_INTR_C|MC3630_WRITE, 0x41);
+
+	// FIFOを使用する
+	vSPIWrite8(CS_DIO19, MC3630_FIFO_C|MC3630_WRITE, 0x40|u8Samples);
+
+	vMC3630_Wakeup();
 }
 
 /****************************************************************************/

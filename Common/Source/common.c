@@ -224,12 +224,9 @@ bool_t bTransmitToParent(tsToCoNet_Nwk_Context *pNwk, uint8 *pu8Data, uint8 u8Le
 		sTx.u32DstAddr = TOCONET_NWK_ADDR_PARENT;
 	}
 
-	// IDが初期値ならDIPスイッチの値を使用する
-	uint8 u8DeviceID = (sAppData.sFlash.sData.u8id==0) ? ((sAppData.u8DIPSW&0x07)+1):sAppData.sFlash.sData.u8id;
-
 	// ペイロードの準備
 	S_OCTET('T'+0x80);
-	S_OCTET(u8DeviceID);
+	S_OCTET(sAppData.u8LID);
 	S_BE_WORD(sAppData.u16frame_count);
 
 	// 上下をひっくり返す
@@ -255,9 +252,8 @@ bool_t bTransmitToParent(tsToCoNet_Nwk_Context *pNwk, uint8 *pu8Data, uint8 u8Le
  * @param u32SleepDur_ms スリープ時間[ms]
  * @param bPeriodic TRUE:前回の起床時間から次のウェイクアップタイミングを計る
  * @param bDeep TRUE:RAM OFF スリープ
- * @param bWDT TRUE WT1をWDTを制御するために使用する
  */
-void vSleep(uint32 u32SleepDur_ms, bool_t bPeriodic, bool_t bDeep) {
+void vSleep(uint32 u32SleepDur_ms, bool_t bPeriodic, bool_t bDeep ) {
 	vPortSetLo(WDT_OUT);
 #ifdef ENDDEVICE
 	if(!IS_APPCONF_OPT_WAKE_RANDOM() && u32SleepDur_ms != 0){		//	起床ランダムのオプションが立っていた時

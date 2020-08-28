@@ -82,21 +82,25 @@ typedef struct {
 /****************************************************************************/
 /***        Exported Functions                                            ***/
 /****************************************************************************/
-extern void *pvProcessEv;
-extern void (*pf_cbProcessSerialCmd)(tsSerCmd_Context *);
-
 void vInitAppNOC();
 void vInitAppMAG();
 void vInitAppENV();
 void vInitAppMOT();
+void vInitAppMOT_Event();
+void vInitAppLED();
 void vInitAppConfig();
 
 /****************************************************************************/
 /***        Exported Variables                                            ***/
 /****************************************************************************/
-extern tsFILE sSerStream;
-extern tsCbHandler *psCbHandler;
 extern tsPALData sPALData;
+extern tsFILE sSerStream;
+
+extern tsCbHandler *psCbHandler;
+extern tsCbHandler *psCbHandler_Sub;
+extern void *pvProcessEv;
+extern void *pvProcessEv_Sub;
+extern void (*pf_cbProcessSerialCmd)(tsSerCmd_Context *);
 
 #if defined __cplusplus
 }
