@@ -313,12 +313,10 @@ static void vProcessInputByte(uint8 u8Byte) {
 				E_APPCONF_CHMASK);
 		break;
 
-#ifdef ENDDEVICE
 	case 'i': // set application role
 		V_PRINTF("Input Device ID (DEC:1-100): ");
 		INPSTR_vStart(&sSerInpStr, E_INPUTSTRING_DATATYPE_DEC, 3, E_APPCONF_ID);
 		break;
-#endif
 
 	case 'x': // 出力の変更
 		V_PRINTF("Retry & Rf Power"
@@ -327,26 +325,6 @@ static void vProcessInputByte(uint8 u8Byte) {
 				LB "Input: ");
 		INPSTR_vStart(&sSerInpStr, E_INPUTSTRING_DATATYPE_HEX, 2, E_APPCONF_TX_POWER);
 		break;
-
-#ifdef ROUTER
-	case 'l': // 出力の変更
-/*
-		V_PRINTF(   "Layer: "
-				 LB "   XXY XX=Layer(1-63)"
-				 LB "        Y=MaxSubLayer(0-2)"
-				 LB "Input :");
-*/
-		V_PRINTF("Input Layer(1-63): ");
-		INPSTR_vStart(&sSerInpStr, E_INPUTSTRING_DATATYPE_DEC, 3,
-				E_APPCONF_LAYER);
-		break;
-
-	case 'A':
-		V_PRINTF( "Access Point SID: " );
-		INPSTR_vStart(&sSerInpStr, E_INPUTSTRING_DATATYPE_HEX, 8,
-				E_APPCONF_ADDRHIGH);
-		break;
-#endif
 
 	case 't': // スリープ周期
 		V_PRINTF("Input Transmission Interval[min]: ");
@@ -382,7 +360,6 @@ static void vProcessInputByte(uint8 u8Byte) {
 				E_APPCONF_ENC_KEY);
 		break;
 
-#ifdef ENDDEVICE
 	case 'e':
 		V_PRINTF("Notice PAL Action(s) Each Event");
 		V_PRINTF(LB"    IIRGBWPT");
@@ -396,7 +373,7 @@ static void vProcessInputByte(uint8 u8Byte) {
 		V_PRINTF(LB"(e.g. 000000000140701A): ");
 		INPSTR_vStart(&sSerInpStr, E_INPUTSTRING_DATATYPE_STRING, 136, E_APPCONF_EVENT);
 		break;
-#endif
+
 	case 'S':
 		// フラッシュへのデータ保存
 		if (u8lastbyte == 'R') {
@@ -456,10 +433,6 @@ static void vProcessInputByte(uint8 u8Byte) {
 				V_PRINTF("** Conf "LB);
 				V_PRINTF("* AppId = %08x"LB, sAppData.sFlash.sData.u32appid);
 				V_PRINTF("* ChMsk = %08x"LB, sAppData.sFlash.sData.u32chmask);
-#ifdef ROUTER
-				extern void vSerNwkInfoV();
-				vSerNwkInfoV();
-#endif
 			} else {
 				V_PRINTF("** Conf: none"LB);
 			}
@@ -569,7 +542,6 @@ static void vProcessInputString(tsInpStr_Context *pContext) {
 		}
 		break;
 
-#ifdef ENDDEVICE
 	case E_APPCONF_ID:
 		_C {
 			uint32 u32val = u32string2dec(pu8str, u8idx);
@@ -582,7 +554,6 @@ static void vProcessInputString(tsInpStr_Context *pContext) {
 			}
 		}
 		break;
-#endif
 
 	case E_APPCONF_TX_POWER:
 		_C {
@@ -599,47 +570,6 @@ static void vProcessInputString(tsInpStr_Context *pContext) {
 		}
 		break;
 
-#ifdef ROUTER
-	case E_APPCONF_LAYER:
-		_C {
-			uint32 u32val = u32string2dec(pu8str, u8idx);
-			V_PRINTF(LB"-> ", u8idx);
-
-			uint8 u8layer = 0;
-			uint8 u8subl = 0;
-			if( u8idx == 3 ){
-				u8layer = u32val/10;
-				u8subl = u32val%10;
-			}else{
-				u8layer = u32val;
-			}
-
-			if (u8layer >= 1 && u8layer <= 63 && u8subl <= 3) {
-				sConfig_UnSaved.u8layer = u8layer * 4 + u8subl;
-
-				V_PRINTF("%d"LB, u8layer);
-				if( u8subl ){
-					V_PRINTF(".%d", u8subl);
-				}
-				V_PRINTF(LB);
-			} else {
-				V_PRINTF("(ignored)"LB);
-			}
-		}
-		break;
-
-	case E_APPCONF_ADDRHIGH:
-		_C {
-			uint32 u32val = u32string2hex(pu8str, u8idx);
-			V_PRINTF(LB"-> ");
-
-			sConfig_UnSaved.u32AddrHigherLayer = u32val;
-			V_PRINTF( "0x%08X"LB, sConfig_UnSaved.u32AddrHigherLayer );
-		}
-		break;
-#endif
-
-#ifdef ENDDEVICE
 	case E_APPCONF_SLEEP_DUR:
 		_C {
 			uint32 u32val = u32string2dec(pu8str, u8idx);
@@ -663,7 +593,6 @@ static void vProcessInputString(tsInpStr_Context *pContext) {
 			V_PRINTF("%08X"LB, u32val);
 		}
 		break;
-#endif
 
 	case E_APPCONF_OPT:
 		_C {
@@ -751,7 +680,6 @@ static void vProcessInputString(tsInpStr_Context *pContext) {
 		}
 		break;
 
-#ifdef ENDDEVICE
 	case E_APPCONF_EVENT:
 		_C{
 			uint8 u8len = strlen((void*)pu8str);
@@ -766,7 +694,6 @@ static void vProcessInputString(tsInpStr_Context *pContext) {
 
 		}
 		break;
-#endif
 
 	default:
 		break;
@@ -851,26 +778,6 @@ uint16 Config_u16Serialize(uint8 *pu8dat, uint16 u16len, uint8 u8fmt) {
 		memcpy(pu8dat, &sTemp, sizeof(tsFlashApp));
 		u16ret = sizeof(tsFlashApp);
 	}
-#if 0
-	if (u8fmt == XXX) {
-		tsFlashApp sDefault;
-		vConfig_UnSetAll(&sDefault);
-		Config_vSetDefaults(&sDefault);
-
-		int i;
-		uint8 *q = (void*)&sTemp;
-		uint8 *q_def = (void*)&sDefault;
-
-		// デフォルトと同じデータの場合は 0xFF として送信する
-		for (i = 0; i < sizeof(tsFlashApp); i++, q++, q_def++, pu8dat++) {
-			if (*q == *q_def) {
-				*pu8dat = 0xFF;
-			} else {
-				*pu8dat = *q;
-			}
-		}
-	}
-#endif
 
 	return u16ret;
 }
@@ -906,7 +813,6 @@ static void vConfig_Update(tsFlashApp *pTemp) {
 	if (sConfig_UnSaved.u32EncKey != 0xFFFFFFFF) {
 		pTemp->u32EncKey = sConfig_UnSaved.u32EncKey;
 	}
-#ifdef ENDDEVICE
 	if (sConfig_UnSaved.u32Slp != 0xFFFFFFFF) {
 		pTemp->u32Slp = sConfig_UnSaved.u32Slp;
 	}
@@ -918,15 +824,6 @@ static void vConfig_Update(tsFlashApp *pTemp) {
 		memcpy(pTemp->au8Event, sConfig_UnSaved.au8Event, sConfig_UnSaved.u8EventNum*8);
 		pTemp->u8EventNum = sConfig_UnSaved.u8EventNum;
 	}
-#endif
-#ifdef ROUTER
-	if (sConfig_UnSaved.u8layer != 0xFF) {
-		pTemp->u8layer = sConfig_UnSaved.u8layer;
-	}
-	if (sConfig_UnSaved.u32AddrHigherLayer != 0xFFFFFFFF) {
-		pTemp->u32AddrHigherLayer = sConfig_UnSaved.u32AddrHigherLayer;
-	}
-#endif
 }
 
 /** @ingroup FLASH
@@ -965,13 +862,9 @@ static void vSerUpdateScreen() {
 	V_PRINTF(
 			"--- CONFIG/" APP_NAME " V%d-%02d-%d/SID=0x%08x/LID=0x%02x",
 			VERSION_MAIN, VERSION_SUB, VERSION_VAR, ToCoNet_u32GetSerial(),
-#ifdef ENDDEVICE
 			sAppData.u8LID);
 	V_PRINTF( "/RC=%d", sAppData.sFlash.sData.u16RcClock);
 	V_PRINTF( "/ST=%d", sAppData.u8SettingsID );
-#else
-			sAppData.sFlash.sData.u8id);
-#endif
 
 	V_PRINTF(" ---"LB);
 
@@ -980,7 +873,6 @@ static void vSerUpdateScreen() {
 			FL_IS_MODIFIED_u32(appid) ? FL_UNSAVE_u32(appid) : FL_MASTER_u32(appid),
 			FL_IS_MODIFIED_u32(appid) ? '*' : ' ');
 
-#ifdef ENDDEVICE
 	// Device ID
 	{
 		uint8 u8DevID =
@@ -994,7 +886,6 @@ static void vSerUpdateScreen() {
 					FL_IS_MODIFIED_u8(id) ? '*' : ' ');
 		}
 	}
-#endif
 	V_PRINTF(" c: set Channels (");
 	{
 		// find channels in ch_mask
@@ -1054,23 +945,6 @@ static void vSerUpdateScreen() {
 			FL_IS_MODIFIED_u32(Opt) ? FL_UNSAVE_u32(Opt) : FL_MASTER_u32(Opt),
 			FL_IS_MODIFIED_u32(Opt) ? '*' : ' ');
 
-#ifdef ROUTER
-	{
-		uint8 c = FL_IS_MODIFIED_u8(layer) ? FL_UNSAVE_u8(layer) : FL_MASTER_u8(layer);
-		V_PRINTF(" l: set layer (%d", c / 4 );
-		if( c%4 > 0 ){
-			V_PRINTF(".%d", c % 4);
-		}
-		V_PRINTF(")%c" LB,
-			FL_IS_MODIFIED_u8(layer) ? '*' : ' ');
-	}
-
-	V_PRINTF(" A: set access point address (0x%08X)%c" LB,
-			FL_IS_MODIFIED_u32(AddrHigherLayer) ? FL_UNSAVE_u32(AddrHigherLayer) : FL_MASTER_u32(AddrHigherLayer),
-			FL_IS_MODIFIED_u32(AddrHigherLayer) ? '*' : ' ');
-#endif
-
-#ifdef ENDDEVICE
 	V_PRINTF(" t: set Transmission Interval (%d)%c" LB,
 			FL_IS_MODIFIED_u32(Slp) ? FL_UNSAVE_u32(Slp) : FL_MASTER_u32(Slp),
 			FL_IS_MODIFIED_u32(Slp) ? '*' : ' ');
@@ -1084,16 +958,11 @@ static void vSerUpdateScreen() {
 			(sConfig_UnSaved.au8Event[136] != 0xFF) ? '*' : ' '
 			);
 
-#endif
 
 	V_PRINTF("---"LB);
 
 	V_PRINTF(" S: save Configuration" LB " R: reset to Defaults" LB);
-#ifdef OTA
-	V_PRINTF(" *** POWER ON END DEVICE NEAR THIS CONFIGURATOR ***" LB LB);
-#else
 	V_PRINTF(LB);
-#endif
 	//       0123456789+123456789+123456789+1234567894123456789+123456789+123456789+123456789
 }
 

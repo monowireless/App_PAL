@@ -68,6 +68,6 @@ typedef struct {
 
 } tsAppData_Ed;
 
-extern tsAppData_Ed sAppData_Ed;
+extern tsAppData_Ed sAppData;
 
 #endif /* APPDATA_H_ */

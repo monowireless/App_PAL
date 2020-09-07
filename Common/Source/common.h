@@ -15,12 +15,8 @@ void vSleep(uint32 u32SleepDur_ms, bool_t bPeriodic, bool_t bDeep);
 void vResetWithMsg(tsFILE *psSerStream, string str);
 
 bool_t bTransmitToParent(tsToCoNet_Nwk_Context *pNwk, uint8 *pu8Data, uint8 u8Len);
-
 bool_t bRegAesKey(uint32 u32seed);
-
-#ifdef ENDDEVICE
 bool_t bGetPALOptions( void );
-#endif
 
 extern const uint8 au8EncKey[];
 extern uint32 u32DioPortWakeUp;
@@ -36,28 +32,6 @@ extern uint32 u32DioPortWakeUp;
 #define PKT_ID_IRC 0x05
 
 /*
- * パケット識別子 (App_Tag)
- */
-#define PKT_ID_STANDARD 0x10
-#define PKT_ID_LM61 0x11
-#define PKT_ID_SHT21 0x31
-#define PKT_ID_ADT7410 0x32
-#define PKT_ID_MPL115A2 0x33
-#define PKT_ID_LIS3DH 0x34
-#define PKT_ID_ADXL345 0x35
-#define PKT_ID_TSL2561 0x36
-#define PKT_ID_L3GD20 0x37
-#define PKT_ID_S1105902 0x38
-#define PKT_ID_BME280 0x39
-#define PKT_ID_IO_TIMER 0x51
-#define PKT_ID_MAX31855 0x61
-#define PKT_ID_ADXL362 0x62
-#define PKT_ID_UART 0x81
-#define PKT_ID_ADXL345_LOWENERGY 0xA1
-#define PKT_ID_MULTISENSOR 0xD1
-#define PKT_ID_BUTTON 0xFE
-
-/*
  * 標準ポート定義 (TWELITE PAL)
  */
 // 子機用配置
@@ -69,11 +43,7 @@ extern uint32 u32DioPortWakeUp;
 
 #define EH_BOOT 4
 
-#ifdef USE_MONOSTICK
-#define OUTPUT_LED 16
-#else
 #define OUTPUT_LED 5
-#endif
 
 #define INPUT_D0 0
 #define INPUT_D8 8

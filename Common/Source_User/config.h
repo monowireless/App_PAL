@@ -54,15 +54,7 @@ extern "C" {
 
 #define PORT_INPUT_MASK ( 1UL << INPUT_SWSET )
 
-#ifdef PARENT
-# define sAppData sAppData_Pa
-#endif
-#ifdef ROUTER
-# define sAppData sAppData_Ro
-#endif
-#ifdef ENDDEVICE
-# define sAppData sAppData_Ed
-#endif
+//# define sAppData sAppData_Ed
 
 /****************************************************************************/
 /***        Type Definitions                                              ***/

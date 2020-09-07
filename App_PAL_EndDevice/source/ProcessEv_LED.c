@@ -752,7 +752,7 @@ void vSetLED()
 	bPCA9632_Duty(RED, sLEDParam.u8LEDDuty[RED]);
 	bPCA9632_Duty(GREEN, sLEDParam.u8LEDDuty[GREEN]);
 	bPCA9632_Duty(BLUE, sLEDParam.u8LEDDuty[BLUE]);
-	bPCA9632_Duty(WHITE, sLEDParam.u8LEDDuty[RED]);
+	bPCA9632_Duty(WHITE, sLEDParam.u8LEDDuty[WHITE]);
 
 	bPCA9632_BlinkCycle(sLEDParam.u8BlinkCycle);
 	bPCA9632_BlinkDuty(sLEDParam.u8BlinkDuty);

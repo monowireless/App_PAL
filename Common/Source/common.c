@@ -25,12 +25,9 @@
 // ToCoNet Header
 #include "ToCoNet.h"
 
-#ifdef ENDDEVICE
 #include "ccitt8.h"
 #include "EndDevice.h"
-
 #include "SMBus.h"
-#endif
 
 #define CONTINUE() {u8StartAddr += 64; bOk = FALSE; memset(&sPALData, 0x00, sizeof(sPALData)); continue;}
 
@@ -86,7 +83,6 @@ void vDispInfo(tsFILE *psSerStream, tsToCoNet_NwkLyTr_Context *pc) {
 /**
  * PALのモデルIDやオプションをPALから取得する
  */
-#ifdef ENDDEVICE
 bool_t bGetPALOptions( void )
 {
 	const uint8 u8Addr = 0x56;
@@ -182,9 +178,7 @@ bool_t bGetPALOptions( void )
 	sPALData.u8EEPROMStatus = u8Status;	// 2ブロック目のMagicNumberが間違っている
 	return bOk;
 }
-#endif
 
-#ifdef ENDDEVICE
 /**
  *
  * 親機に対して送信する
@@ -197,7 +191,7 @@ bool_t bGetPALOptions( void )
 bool_t bTransmitToParent(tsToCoNet_Nwk_Context *pNwk, uint8 *pu8Data, uint8 u8Len)
 {
 	// LEDを点灯させる
-	if(sAppData_Ed.u8LedState == 0x00){
+	if(sAppData.u8LedState == 0x00){
 		LED_ON();
 	}
 
@@ -245,7 +239,6 @@ bool_t bTransmitToParent(tsToCoNet_Nwk_Context *pNwk, uint8 *pu8Data, uint8 u8Le
 
 	return ToCoNet_Nwk_bTx(pNwk, &sTx);
 }
-#endif
 
 /** @ingroup MASTER
  * スリープの実行

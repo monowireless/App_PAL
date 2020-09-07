@@ -477,8 +477,7 @@ static void vInitHardware(int f_warm_start)
 				vAHI_SwReset();		// Rebootする
 			}
 		}else{
-			//sAppData.u8SnsID = PKT_ID_NOCONNECT;
-			sAppData.u8SnsID = PKT_ID_MOT;
+			sAppData.u8SnsID = PKT_ID_NOCONNECT;
 		}
 	}
 
