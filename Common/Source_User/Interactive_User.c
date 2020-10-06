@@ -17,31 +17,20 @@ static void Config_vSetDefaults(tsFlashApp *p) {
 	p->u32chmask = CHMASK;
 	p->u8ch = CHANNEL;
 
-#ifdef ENDDEVICE
 	p->u8pow = 0x13;
-#else
-	p->u8pow = 0x3;
-#endif
 	p->u8id = 0;
 
 	p->u32baud_safe = UART_BAUD_SAFE;
 	p->u8parity = 0;
 
-#ifdef ENDDEVICE
 	p->u16RcClock = 0;
 	p->u32Slp = DEFAULT_SLEEP_DUR;
 	p->u32param = 0;
 	memset( p->au8Event, 0, 137 );
 	memcpy( p->au8Event, "0180002A0208002A0300802A0488002A0580802A0608802A0880000A1008000A", 8*8);
 	p->u8EventNum = 8;
-#endif
 
 	p->u32Opt = 1; // デフォルトの設定ビット
-
-#ifdef ROUTER
-	p->u8layer = 4; // Layer:1
-	p->u32AddrHigherLayer = 0; // 指定送信先なし
-#endif
 
 	p->u32EncKey = DEFAULT_ENC_KEY;
 }

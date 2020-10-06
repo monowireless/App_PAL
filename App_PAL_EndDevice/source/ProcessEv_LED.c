@@ -39,7 +39,8 @@ typedef struct{
 tsLEDParam sLEDParam;
 tsLEDParam asLEDEventParam[32];
 
-uint8 au8BlinkCycle[16] = { 0, 0x17, 0x0B, 0x05, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0 };
+uint8 au8BlinkCycle[16] = { 0, 0x17, 0x0B, 0x05, 0x17, 0x17, 0x2E, 0x2E, 0x45, 0x45, 0x0C, 0x0C, 0x08, 0x08, 0x2E, 0x45 };
+uint8 au8BlinkDuty[16] =  { 0, 0x7F, 0x7F, 0x7F, 0x06, 0x0D, 0x03, 0x07, 0x02, 0x05, 0x0C, 0x1A, 0x12, 0x27, 0x7F, 0x7F };
 
 static void vLEDEventParam_Init();
 static void vProcessEvCore(tsEvent *pEv, teEvent eEvent, uint32 u32evarg);
@@ -94,10 +95,10 @@ PRSEV_HANDLER_DEF(E_STATE_IDLE, tsEvent *pEv, teEvent eEvent, uint32 u32evarg) {
 			bPCA9632_Reset();
 			bPCA9632_Init();
 
-			bPCA9632_Duty(PCA9632_RED, 127);
-			bPCA9632_Duty(PCA9632_GREEN, 127);
-			bPCA9632_Duty(PCA9632_BLUE, 127);
-			bPCA9632_Duty(PCA9632_WHITE, 127);
+			bPCA9632_Duty(PCA9632_RED, 63);
+			bPCA9632_Duty(PCA9632_GREEN, 63);
+			bPCA9632_Duty(PCA9632_BLUE, 63);
+			bPCA9632_Duty(PCA9632_WHITE, 63);
 			bPCA9632_LEDStatus(0x00);
 
 			vLEDEventParam_Init();
@@ -107,17 +108,17 @@ PRSEV_HANDLER_DEF(E_STATE_IDLE, tsEvent *pEv, teEvent eEvent, uint32 u32evarg) {
 		}
 
 		// RC クロックのキャリブレーションを行う
-		ToCoNet_u16RcCalib(sAppData.sFlash.sData.u16RcClock);
+		if(sAppData.sFlash.sData.u16RcClock == 0){
+			sAppData.sFlash.sData.u16RcClock = ToCoNet_u16RcCalib(0);
+		}
 
 		// センサーがらみの変数の初期化
 		u8sns_cmplt = 0;
 		vMC3630_Init( &sObjMC3630, &sSnsObj );
 		if( sAppData.sFlash.sData.u32param == 1 ){
 			sObjMC3630.u8Event = u8Event_before;
-			V_PRINTF(LB "! event = %d", sObjMC3630.u8Event );
-			V_FLUSH();
 		}
-			V_PRINTF(LB "! event = %d", sObjMC3630.u8Event );
+		V_PRINTF(LB "! event = %d", sObjMC3630.u8Event );
 
 		// ショートスリープだったらLEDをいったん消す
 		if( !sAppData.bWakeupByButton && bShortSleep ){
@@ -145,7 +146,12 @@ PRSEV_HANDLER_DEF(E_STATE_IDLE, tsEvent *pEv, teEvent eEvent, uint32 u32evarg) {
 			if( !sAppData.bWakeupByButton ){
 				//V_PRINTF(LB "*** Wake by Timer.");
 				//bPCA9632_LEDStatus(0x00);
-				ToCoNet_Event_SetState(pEv, E_STATE_APP_WAIT_TX); // スリープ状態へ遷移
+				if( sAppData.u32SleepCount == 0 ){
+					ToCoNet_Event_SetState(pEv, E_STATE_APP_WAIT_TX); // 親機に問い合わせる
+				}else{
+					ToCoNet_Event_SetState(pEv, E_STATE_APP_SLEEP); // スリープ状態へ遷移
+					return;
+				}
 			}else{
 				vSnsObj_Process(&sSnsObj, E_ORDER_KICK);
 				if (bSnsObj_isComplete(&sSnsObj)) {
@@ -156,15 +162,14 @@ PRSEV_HANDLER_DEF(E_STATE_IDLE, tsEvent *pEv, teEvent eEvent, uint32 u32evarg) {
 					return;
 				}
 
-				// ADC の取得
-				vADC_WaitInit();
-				vSnsObj_Process(&sAppData.sADC, E_ORDER_KICK);
-
-
 				// センサ値を読み込んで送信する
 				// RUNNING 状態
 				ToCoNet_Event_SetState(pEv, E_STATE_RUNNING);
 			}
+
+			// ADC の取得
+			vADC_WaitInit();
+			vSnsObj_Process(&sAppData.sADC, E_ORDER_KICK);
 		}
 
 	} else {
@@ -196,6 +201,20 @@ PRSEV_HANDLER_DEF(E_STATE_APP_BLINK_LED, tsEvent *pEv, teEvent eEvent, uint32 u3
 		vMC3630_StartSNIFF( 2, 1 );
 		sAppData.u8LedState = 0;
 		LED_OFF();
+		bPCA9632_LEDStatus(0x00);
+		ToCoNet_Event_SetState(pEv, E_STATE_APP_SLEEP); // スリープ状態へ遷移
+	}
+}
+
+// ADC 待ち
+PRSEV_HANDLER_DEF(E_STATE_APP_WAIT_ADC, tsEvent *pEv, teEvent eEvent, uint32 u32evarg) {
+	if(u8sns_cmplt == E_SNS_ADC_CMP_MASK){
+		ToCoNet_Event_SetState(pEv, E_STATE_APP_WAIT_TX);
+	}
+
+	// タイムアウト
+	if (ToCoNet_Event_u32TickFrNewState(pEv) > 100) {
+		V_PRINTF(LB"! TIME OUT (E_STATE_RUNNING)");
 		ToCoNet_Event_SetState(pEv, E_STATE_APP_SLEEP); // スリープ状態へ遷移
 	}
 }
@@ -388,7 +407,7 @@ PRSEV_HANDLER_DEF(E_STATE_APP_WAIT_RX, tsEvent *pEv, teEvent eEvent, uint32 u32e
 	}
 
 	// タイムアウト
-	if (ToCoNet_Event_u32TickFrNewState(pEv) > 200) {
+	if (ToCoNet_Event_u32TickFrNewState(pEv) > 100) {
 		V_PRINTF(LB"Rx TIME OUT");
 		V_FLUSH();
 		sToCoNet_AppContext.bRxOnIdle = FALSE;
@@ -401,15 +420,20 @@ PRSEV_HANDLER_DEF(E_STATE_APP_SLEEP, tsEvent *pEv, teEvent eEvent, uint32 u32eva
 	if (eEvent == E_EVENT_NEW_STATE) {
 		vMC3630_ClearInterrupReg();
 
-		V_PRINTF(LB"! Sleeping... %d", sLEDParam.u16Offtime);
+		uint32 u32Sleep = 60000;	// 60 * 1000ms
+		if( sAppData.u32SleepCount == 0 && sAppData.u8Sleep_sec ){
+			u32Sleep = sAppData.u8Sleep_sec*1000;
+		}
+		if(bShortSleep == TRUE && sLEDParam.u16Offtime){
+			u32Sleep = sLEDParam.u16Offtime*1000;
+		}
+
+		V_PRINTF(LB"! Sleeping... %d", u32Sleep);
 		V_FLUSH();
 
 		if (sAppData.pContextNwk) {
 			ToCoNet_Nwk_bPause(sAppData.pContextNwk);
 		}
-
-//		sToCoNet_AppContext.bRxOnIdle = FALSE;
-//		ToCoNet_vRfConfig();
 
 		pEv->bKeepStateOnSetAll = FALSE; // スリープ復帰の状態を維持しない
 
@@ -420,12 +444,12 @@ PRSEV_HANDLER_DEF(E_STATE_APP_SLEEP, tsEvent *pEv, teEvent eEvent, uint32 u32eva
 		vAHI_DioWakeEdge(0, u32DioPortWakeUp ); // 割り込みエッジ(立上がりに設定)
 
 		if( bShortSleep == TRUE && sLEDParam.u16Offtime ){
-			// 周期スリープに入る
-			ToCoNet_vSleep(E_AHI_WAKE_TIMER_0, sLEDParam.u16Offtime*1000, FALSE, FALSE);
+			vPortSetLo(WDT_OUT);
+			// 短期スリープに入る
+			ToCoNet_vSleep(E_AHI_WAKE_TIMER_0, u32Sleep, FALSE, FALSE);
 		}else{
-			bShortSleep = FALSE;
 			// 周期スリープに入る
-			vSleep(sAppData.sFlash.sData.u32Slp*1000, FALSE, FALSE);
+			vSleep(u32Sleep, sAppData.bWakeupByButton, FALSE);
 		}
 
 	}
@@ -437,6 +461,7 @@ PRSEV_HANDLER_DEF(E_STATE_APP_SLEEP, tsEvent *pEv, teEvent eEvent, uint32 u32eva
 static const tsToCoNet_Event_StateHandler asStateFuncTbl[] = {
 	PRSEV_HANDLER_TBL_DEF(E_STATE_IDLE),
 	PRSEV_HANDLER_TBL_DEF(E_STATE_APP_BLINK_LED),
+	PRSEV_HANDLER_TBL_DEF(E_STATE_APP_WAIT_ADC),
 	PRSEV_HANDLER_TBL_DEF(E_STATE_RUNNING),
 	PRSEV_HANDLER_TBL_DEF(E_STATE_APP_WAIT_TX),
 	PRSEV_HANDLER_TBL_DEF(E_STATE_APP_WAIT_RX),
@@ -494,6 +519,15 @@ static void cbAppToCoNet_vHwEvent(uint32 u32DeviceId, uint32 u32ItemBitmap) {
 	switch (u32DeviceId) {
 	case E_AHI_DEVICE_TICK_TIMER:
 		vProcessMC3630(E_EVENT_TICK_TIMER);
+
+		if(sAppData.u8LedState == 2){
+			if(u32TickCount_ms&0x0080){
+				bPCA9632_LEDStatus(0x55);
+			}else{
+				bPCA9632_LEDStatus(0x00);
+			}
+			vPortSet_TrueAsLo( OUTPUT_LED, u32TickCount_ms&0x0080 );
+		}
 		break;
 
 	case E_AHI_DEVICE_ANALOGUE:
@@ -672,15 +706,15 @@ static void vProcessMC3630(teEvent eEvent) {
 
 
 		V_PRINTF( LB"!NUM = %d", sObjMC3630.u8FIFOSample );
-		uint8 i = 0;
-//		for( i=0; i< sObjMC3630.u8FIFOSample; i++){
+		uint8 i;
+		for( i=0; i< sObjMC3630.u8FIFOSample; i++){
 			V_PRINTF(LB"!MC3630_%d: X : %d, Y : %d, Z : %d",
 					i,
 					sObjMC3630.ai16Result[MC3630_X][i],
 					sObjMC3630.ai16Result[MC3630_Y][i],
 					sObjMC3630.ai16Result[MC3630_Z][i]
 			);
-//		}
+		}
 
 		// 完了時の処理
 		if (u8sns_cmplt == E_SNS_ALL_CMP) {
@@ -785,7 +819,7 @@ void vLEDEventParam_Init()
 			asLEDEventParam[u8Id].u8LEDDuty[GREEN] = ((u16RGBW&0x0F00)>>8)<<3;
 			asLEDEventParam[u8Id].u8LEDDuty[BLUE] = ((u16RGBW&0x00F0)>>4)<<3;
 			asLEDEventParam[u8Id].u8LEDDuty[WHITE] = (u16RGBW&0x000F)<<3;
-			asLEDEventParam[u8Id].u8BlinkDuty = 0x7F;		// ON:OFF = 1:1
+			asLEDEventParam[u8Id].u8BlinkDuty = au8BlinkDuty[u8Blink];
 			asLEDEventParam[u8Id].u8BlinkCycle = au8BlinkCycle[u8Blink];
 			asLEDEventParam[u8Id].u16Offtime = u8Time;
 		

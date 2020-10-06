@@ -327,7 +327,7 @@ static void vProcessInputByte(uint8 u8Byte) {
 		break;
 
 	case 't': // スリープ周期
-		V_PRINTF("Input Transmission Interval[min]: ");
+		V_PRINTF("Input Transmission Interval[sec]: ");
 		INPSTR_vStart(&sSerInpStr, E_INPUTSTRING_DATATYPE_DEC, 8,
 				E_APPCONF_SLEEP_DUR);
 		break;

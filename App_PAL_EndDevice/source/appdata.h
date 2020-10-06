@@ -56,6 +56,8 @@ typedef struct {
 	uint8 u8LID;
 
 	uint32 u32DIO_startup;
+	uint32 u32Sleep_min;
+	uint8 u8Sleep_sec;
 
 	// その他
 	tsFlash sFlash; //!< フラッシュの情報
@@ -66,8 +68,8 @@ typedef struct {
 
 	uint8 u8SettingsID; //!< 設定の保存先のIDを保持する
 
-} tsAppData_Ed;
+} tsAppData;
 
-extern tsAppData_Ed sAppData;
+extern tsAppData sAppData;
 
 #endif /* APPDATA_H_ */

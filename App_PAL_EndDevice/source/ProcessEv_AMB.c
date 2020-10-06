@@ -264,7 +264,13 @@ PRSEV_HANDLER_DEF(E_STATE_APP_BLINK_LED, tsEvent *pEv, teEvent eEvent, uint32 u3
 PRSEV_HANDLER_DEF(E_STATE_APP_SLEEP, tsEvent *pEv, teEvent eEvent, uint32 u32evarg) {
 	if (eEvent == E_EVENT_NEW_STATE) {
 		// Sleep は必ず E_EVENT_NEW_STATE 内など１回のみ呼び出される場所で呼び出す。
-		V_PRINTF(LB"! Sleeping...");
+		// スリープ時間を計算する
+		uint32 u32Sleep = 60000;	// 60 * 1000ms
+		if( sAppData.u32SleepCount == 0 && sAppData.u8Sleep_sec ){
+			u32Sleep = sAppData.u8Sleep_sec*1000;
+		}
+
+		V_PRINTF(LB"Sleeping... %d", u32Sleep);
 		V_FLUSH();
 
 		pEv->bKeepStateOnSetAll = FALSE; // スリープ復帰の状態を維持
@@ -281,7 +287,7 @@ PRSEV_HANDLER_DEF(E_STATE_APP_SLEEP, tsEvent *pEv, teEvent eEvent, uint32 u32eva
 		vAHI_DioWakeEdge( 0, u32DioPortWakeUp ); // 割り込みエッジ（立下りに設定）
 
 		// 周期スリープに入る
-		vSleep( 60000, sAppData.u16frame_count == 1 ? FALSE : TRUE, FALSE);
+		vSleep( u32Sleep, sAppData.u16frame_count == 1 ? FALSE : TRUE, FALSE);
 	}
 }
 

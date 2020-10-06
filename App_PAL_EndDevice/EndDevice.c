@@ -66,7 +66,7 @@ void vProcessSerialCmd(tsSerCmd_Context *pCmd);
 /***        Local Variables                                               ***/
 /****************************************************************************/
 // Local data used by the tag during operation
-tsAppData_Ed sAppData;
+tsAppData sAppData;
 
 tsFILE sSerStream;
 tsSerialPortSetup sSerPort;
@@ -148,6 +148,10 @@ void cbAppColdStart(bool_t bAfterAhiInit) {
 
 		// IDが初期値ならDIPスイッチの値を使用する
 		sAppData.u8LID = (sAppData.sFlash.sData.u8id==0) ? ((sAppData.u8DIPSW&0x07)+1+(sAppData.u8DIPSW&0x08?0x80:0)):sAppData.sFlash.sData.u8id+(sAppData.u8DIPSW&0x08?0x80:0);
+
+		// Sleep時間の計算(割り算は遅いので、要検討)
+		sAppData.u32Sleep_min = sAppData.sFlash.sData.u32Slp/60;
+		sAppData.u8Sleep_sec = sAppData.sFlash.sData.u32Slp-(sAppData.u32Sleep_min*60);
 
 		if ( sAppData.bConfigMode ) {
 			// 設定モードで起動

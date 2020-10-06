@@ -2,9 +2,6 @@
     "C_Cpp.errorSquiggles": "Enabled",
     "C_Cpp.default.includePath": [
         "./App_PAL_EndDevice/**",
-        "./App_PAL_Router/**",
-        "./App_PAL_Parent/**",
-        "./App_PAL_Parent_MONOSTICK/**",
         "./Common/**",
         "../../Tools/VSCode/**",
         "../../TWENET/current/include/**",
@@ -12,9 +9,6 @@
     ],
     "C_Cpp.default.browse.path": [
         "./App_PAL_EndDevice/**",
-        "./App_PAL_Router/**",
-        "./App_PAL_Parent/**",
-        "./App_PAL_Parent_MONOSTICK/**",
         "./Common/**",
         "../../Tools/VSCode/**",
         "../../TWENET/current/include/**",

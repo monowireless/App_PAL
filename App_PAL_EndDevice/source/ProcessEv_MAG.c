@@ -209,13 +209,19 @@ PRSEV_HANDLER_DEF(E_STATE_APP_BLINK_LED, tsEvent *pEv, teEvent eEvent, uint32 u3
 PRSEV_HANDLER_DEF(E_STATE_APP_SLEEP, tsEvent *pEv, teEvent eEvent, uint32 u32evarg) {
 	if(eEvent == E_EVENT_NEW_STATE){
 		// Sleep は必ず E_EVENT_NEW_STATE 内など１回のみ呼び出される場所で呼び出す。
-		V_PRINTF(LB"Sleeping...");
-		V_FLUSH();
-
 		// Mininode の場合、特別な処理は無いのだが、ポーズ処理を行う
 		if( sAppData.pContextNwk ){
 			ToCoNet_Nwk_bPause(sAppData.pContextNwk);
 		}
+
+		// スリープ時間を計算する
+		uint32 u32Sleep = 60000;	// 60 * 1000ms
+		if( sAppData.u32SleepCount == 0 && sAppData.u8Sleep_sec ){
+			u32Sleep = sAppData.u8Sleep_sec*1000;
+		}
+
+		V_PRINTF(LB"Sleeping... %d", u32Sleep);
+		V_FLUSH();
 
 		vAHI_UartDisable(UART_PORT); // UART を解除してから(このコードは入っていなくても動作は同じ)
 		(void)u32AHI_DioInterruptStatus(); // clear interrupt register
@@ -228,7 +234,7 @@ PRSEV_HANDLER_DEF(E_STATE_APP_SLEEP, tsEvent *pEv, teEvent eEvent, uint32 u32eva
 		}
 
 		// wake up using wakeup timer as well.
-		vSleep( 60000, TRUE, FALSE ); // PERIODIC RAM OFF SLEEP USING WK0
+		vSleep( u32Sleep, TRUE, FALSE ); // PERIODIC RAM OFF SLEEP USING WK0
 	}
 }
 

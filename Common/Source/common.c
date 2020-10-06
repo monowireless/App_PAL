@@ -248,7 +248,6 @@ bool_t bTransmitToParent(tsToCoNet_Nwk_Context *pNwk, uint8 *pu8Data, uint8 u8Le
  */
 void vSleep(uint32 u32SleepDur_ms, bool_t bPeriodic, bool_t bDeep ) {
 	vPortSetLo(WDT_OUT);
-#ifdef ENDDEVICE
 	if(!IS_APPCONF_OPT_WAKE_RANDOM() && u32SleepDur_ms != 0){		//	起床ランダムのオプションが立っていた時
 		uint32 u32max = u32SleepDur_ms>>3;		//	だいたい±10%
 		uint32 u32Rand = ToCoNet_u32GetRand();
@@ -262,15 +261,15 @@ void vSleep(uint32 u32SleepDur_ms, bool_t bPeriodic, bool_t bDeep ) {
 		}
 	}
 
+	uint32 u32Count = sAppData.u32Sleep_min + ( sAppData.u8Sleep_sec ? 1 : 0 );
+
 	// タイマー起床の時だけカウントする
 	if( sAppData.bWakeupByButton == FALSE ){
 		sAppData.u32SleepCount++;
 	}
-	if( sAppData.u32SleepCount >= sAppData.sFlash.sData.u32Slp ){
+	if( sAppData.u32SleepCount >= u32Count ){
 		sAppData.u32SleepCount = 0;
 	}
-
-#endif
 
 	// wake up using wakeup timer as well.
 	ToCoNet_vSleep(E_AHI_WAKE_TIMER_0, u32SleepDur_ms, bPeriodic, bDeep); // PERIODIC RAM OFF SLEEP USING WK0

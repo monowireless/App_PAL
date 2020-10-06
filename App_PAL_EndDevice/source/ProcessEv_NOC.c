@@ -165,7 +165,7 @@ PRSEV_HANDLER_DEF(E_STATE_APP_SLEEP, tsEvent *pEv, teEvent eEvent, uint32 u32eva
 		 vAHI_DioWakeEdge(0, PORT_INPUT_MASK); // 割り込みエッジ（立下りに設定）
 
 		// 周期スリープに入る
-		vSleep(sAppData.sFlash.sData.u32Slp*60000, sAppData.u16frame_count == 1 ? FALSE : TRUE, FALSE);
+		vSleep(sAppData.sFlash.sData.u32Slp*1000, sAppData.u16frame_count == 1 ? FALSE : TRUE, FALSE);
 	}
 }
 

@@ -44,7 +44,7 @@ extern "C" {
 /**
  * 子機のデフォルトスリープ周期
  */
-#define DEFAULT_SLEEP_DUR (1UL)
+#define DEFAULT_SLEEP_DUR (60UL)
 
 /*************************************************************************/
 /***        TARGET PCB                                                 ***/

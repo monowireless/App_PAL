@@ -30,6 +30,7 @@ static bool_t bContinuous = FALSE;
 static bool_t bActive = FALSE;
 static bool_t bEvent = FALSE;
 static uint16 u16Threshold = 0;
+static bool_t bShortSleep = FALSE;
 
 enum {
 	E_SNS_ADC_CMP_MASK = 1,
@@ -71,6 +72,8 @@ PRSEV_HANDLER_DEF(E_STATE_IDLE, tsEvent *pEv, teEvent eEvent, uint32 u32evarg) {
 		u8sns_cmplt = 0;
 		vMC3630_Init( &sObjMC3630, &sSnsObj );
 
+		bShortSleep = FALSE;
+
 		if( bFirst ){
 			bFirst = FALSE;
 			ToCoNet_Event_SetState(pEv, E_STATE_APP_BLINK_LED);
@@ -80,6 +83,7 @@ PRSEV_HANDLER_DEF(E_STATE_IDLE, tsEvent *pEv, teEvent eEvent, uint32 u32evarg) {
 				V_PRINTF(LB "*** MC3630 Start Measurement ");
 				vMC3630_StartFIFO();
 			}
+			bShortSleep = TRUE;
 			ToCoNet_Event_SetState(pEv, E_STATE_APP_SLEEP);
 		}else{
 			vSnsObj_Process(&sSnsObj, E_ORDER_KICK);
@@ -115,8 +119,6 @@ PRSEV_HANDLER_DEF(E_STATE_APP_BLINK_LED, tsEvent *pEv, teEvent eEvent, uint32 u3
 		if(sAppData.sFlash.sData.u32Slp == 0 ){
 			bContinuous = TRUE;
 		}
-
-		
 
 		u16Threshold = (sAppData.sFlash.sData.u32param>>12)&0x0F;
 		if( u16Threshold != 0 && bContinuous ){
@@ -157,6 +159,7 @@ PRSEV_HANDLER_DEF(E_STATE_APP_BLINK_LED, tsEvent *pEv, teEvent eEvent, uint32 u3
 		sAppData.u8LedState = 0;
 		LED_OFF();
 		if(!bActive) u8FIFOCount = u8ConMax;
+		if(!bContinuous) bShortSleep = TRUE;
 		ToCoNet_Event_SetState(pEv, E_STATE_APP_SLEEP); // スリープ状態へ遷移
 	}
 }
@@ -350,7 +353,13 @@ PRSEV_HANDLER_DEF(E_STATE_APP_WAIT_TX, tsEvent *pEv, teEvent eEvent, uint32 u32e
 
 PRSEV_HANDLER_DEF(E_STATE_APP_SLEEP, tsEvent *pEv, teEvent eEvent, uint32 u32evarg) {
 	if (eEvent == E_EVENT_NEW_STATE) {
-		V_PRINTF(LB"! Sleeping...");
+		// スリープ時間を計算する
+		uint32 u32Sleep = 60000;	// 60 * 1000ms
+		if( sAppData.u32SleepCount == 0 && sAppData.u8Sleep_sec ){
+			u32Sleep = sAppData.u8Sleep_sec*1000;
+		}
+
+		V_PRINTF(LB"! Sleeping... %d %c", u32Sleep, bShortSleep ? 's':' ' );
 		V_FLUSH();
 
 		// Sleep は必ず E_EVENT_NEW_STATE 内など１回のみ呼び出される場所で呼び出す。
@@ -368,12 +377,19 @@ PRSEV_HANDLER_DEF(E_STATE_APP_SLEEP, tsEvent *pEv, teEvent eEvent, uint32 u32eva
 		vAHI_DioWakeEnable( u32DioPortWakeUp, 0); // ENABLE DIO WAKE SOURCE
 		vAHI_DioWakeEdge(0, u32DioPortWakeUp ); // 割り込みエッジ(立上がりに設定)
 
-
-		if (bContinuous){
+		if( bShortSleep ){
+			vPortSetLo(WDT_OUT);
+			// 割り込み待ちスリープに入る
+			ToCoNet_vSleep(E_AHI_WAKE_TIMER_0, 60000, FALSE, FALSE);
+		}else if (bContinuous){
 			vSleep(60000, FALSE, FALSE);
 		}else{
+			if(!bContinuous && sAppData.u32SleepCount == 0 && sAppData.bWakeupByButton == TRUE){
+				sAppData.u32SleepCount++;
+			}
+
 			// 周期スリープに入る
-			vSleep(60000, sAppData.u16frame_count == 1 ? FALSE : TRUE, FALSE);
+			vSleep(u32Sleep, sAppData.u16frame_count == 1 ? FALSE : TRUE, FALSE);
 		}
 		
 	}

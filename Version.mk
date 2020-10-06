@@ -6,9 +6,10 @@
 
 VERSION_MAIN = 1
 VERSION_SUB  = 2
-VERSION_VAR  = 0
+VERSION_VAR  = 1
 
-# 1.1.0 NOTICE PALに対応
+# 1.2.1 送信間隔の刻みを1秒に修正
+# 1.2.0 NOTICE PALに対応
 # 1.1.0 ビルドライブラリの修正
 # 1.0.2 加速度の計算が間違っている点を修正
 # 1.0.1 MOT PALに対応
