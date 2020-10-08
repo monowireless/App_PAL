@@ -26,6 +26,12 @@
 #define END_TX 2
 #define END_RX 3
 
+#define E_OPT_DICEMODE 0x00000001UL
+#define IS_OPT_DICEMODE() ( (sAppData.sFlash.sData.u32param & E_OPT_DICEMODE) != 0 )
+
+#define E_OPT_DISABLE_ACCELEROMETER 0x00000002UL
+#define IS_OPT_DISABLE_ACCELEROMETER() ( (sAppData.sFlash.sData.u32param & E_OPT_DISABLE_ACCELEROMETER) != 0 )
+
 #define ABS(c) (c<0?(-1*c):c)
 
 typedef struct{
@@ -115,10 +121,14 @@ PRSEV_HANDLER_DEF(E_STATE_IDLE, tsEvent *pEv, teEvent eEvent, uint32 u32evarg) {
 		// センサーがらみの変数の初期化
 		u8sns_cmplt = 0;
 		vMC3630_Init( &sObjMC3630, &sSnsObj );
-		if( sAppData.sFlash.sData.u32param == 1 ){
-			sObjMC3630.u8Event = u8Event_before;
+		if( !IS_OPT_DISABLE_ACCELEROMETER() ){
+			if( IS_OPT_DICEMODE() ){
+				sObjMC3630.u8Event = u8Event_before;
+			}
+			V_PRINTF(LB "! event = %d", sObjMC3630.u8Event );
+		}else{
+			vMC3630_Sleep();
 		}
-		V_PRINTF(LB "! event = %d", sObjMC3630.u8Event );
 
 		// ショートスリープだったらLEDをいったん消す
 		if( !sAppData.bWakeupByButton && bShortSleep ){
@@ -131,12 +141,14 @@ PRSEV_HANDLER_DEF(E_STATE_IDLE, tsEvent *pEv, teEvent eEvent, uint32 u32evarg) {
 		sToCoNet_AppContext.bRxOnIdle = TRUE;
 		ToCoNet_vMacStart();
 
-		sObjMC3630.u8Interrupt = u8MC3630_ReadInterrupt();
-		bool_t bSnsInt = bPortRead( SNS_INT );
+		if( !IS_OPT_DISABLE_ACCELEROMETER() ){
+			sObjMC3630.u8Interrupt = u8MC3630_ReadInterrupt();
+			bool_t bSnsInt = bPortRead( SNS_INT );
 
-		// 割り込みピンがLoまたはイベントレジスタのフラグが立っていれば割り込み起床として扱う
-		if( bSnsInt || (sObjMC3630.u8Interrupt&0x44) ){
-			sAppData.bWakeupByButton = TRUE;
+			// 割り込みピンがLoまたはイベントレジスタのフラグが立っていれば割り込み起床として扱う
+			if( bSnsInt || (sObjMC3630.u8Interrupt&0x44) ){
+				sAppData.bWakeupByButton = TRUE;
+			}
 		}
 
 		if( bFirst ){
@@ -147,24 +159,28 @@ PRSEV_HANDLER_DEF(E_STATE_IDLE, tsEvent *pEv, teEvent eEvent, uint32 u32evarg) {
 				//V_PRINTF(LB "*** Wake by Timer.");
 				//bPCA9632_LEDStatus(0x00);
 				if( sAppData.u32SleepCount == 0 ){
-					ToCoNet_Event_SetState(pEv, E_STATE_APP_WAIT_TX); // 親機に問い合わせる
+					ToCoNet_Event_SetState(pEv, E_STATE_APP_WAIT_ADC); // 親機に問い合わせる
 				}else{
 					ToCoNet_Event_SetState(pEv, E_STATE_APP_SLEEP); // スリープ状態へ遷移
 					return;
 				}
 			}else{
-				vSnsObj_Process(&sSnsObj, E_ORDER_KICK);
-				if (bSnsObj_isComplete(&sSnsObj)) {
-					// 即座に完了した時はセンサーが接続されていない、通信エラー等
-					u8sns_cmplt |= E_SNS_MC3630_CMP;
-					V_PRINTF(LB "*** MC3630 comm err?");
-					ToCoNet_Event_SetState(pEv, E_STATE_APP_SLEEP); // スリープ状態へ遷移
-					return;
-				}
+				if( IS_OPT_DISABLE_ACCELEROMETER() ){
+					ToCoNet_Event_SetState(pEv, E_STATE_APP_WAIT_ADC); // 親機に問い合わせる
+				}else{
+					vSnsObj_Process(&sSnsObj, E_ORDER_KICK);
+					if (bSnsObj_isComplete(&sSnsObj)) {
+						// 即座に完了した時はセンサーが接続されていない、通信エラー等
+						u8sns_cmplt |= E_SNS_MC3630_CMP;
+						V_PRINTF(LB "*** MC3630 comm err?");
+						ToCoNet_Event_SetState(pEv, E_STATE_APP_SLEEP); // スリープ状態へ遷移
+						return;
+					}
 
-				// センサ値を読み込んで送信する
-				// RUNNING 状態
-				ToCoNet_Event_SetState(pEv, E_STATE_RUNNING);
+					// センサ値を読み込んで送信する
+					// RUNNING 状態
+					ToCoNet_Event_SetState(pEv, E_STATE_RUNNING);
+				}
 			}
 
 			// ADC の取得
@@ -181,24 +197,28 @@ PRSEV_HANDLER_DEF(E_STATE_IDLE, tsEvent *pEv, teEvent eEvent, uint32 u32evarg) {
 /* 電源投入時はLEDを点滅させる */
 PRSEV_HANDLER_DEF(E_STATE_APP_BLINK_LED, tsEvent *pEv, teEvent eEvent, uint32 u32evarg) {
 	if(eEvent == E_EVENT_NEW_STATE){
-		V_PRINTF(LB "*** MC3630 Setting...");
+		if( !IS_OPT_DISABLE_ACCELEROMETER() ){
+			V_PRINTF(LB "*** MC3630 Setting...");
 
-		sObjMC3630.u8SampleFreq = MC3630_SAMPLING100HZ;
-		bool_t bOk = bMC3630_reset( sObjMC3630.u8SampleFreq, MC3630_RANGE16G, 30 );
-		if(bOk == FALSE){
-			V_PRINTF(LB "Access failed.");
-			ToCoNet_Event_SetState(pEv, E_STATE_APP_SLEEP); // スリープ状態へ遷移
-			return;
+			sObjMC3630.u8SampleFreq = MC3630_SAMPLING100HZ;
+			bool_t bOk = bMC3630_reset( sObjMC3630.u8SampleFreq, MC3630_RANGE16G, 30 );
+			if(bOk == FALSE){
+				V_PRINTF(LB "Access failed.");
+				ToCoNet_Event_SetState(pEv, E_STATE_APP_SLEEP); // スリープ状態へ遷移
+				return;
+			}
+			V_PRINTF(LB "*** MC3630 Setting Compleate!");
 		}
-		V_PRINTF(LB "*** MC3630 Setting Compleate!");
 		V_PRINTF(LB "*** Blink LED ");
 		sAppData.u8LedState = 0x02;
 	}
 
 	// タイムアウトの場合はスリープする
 	if (ToCoNet_Event_u32TickFrNewState(pEv) > 750) {
-		V_PRINTF(LB "*** MC3630 First Sleep ");
-		vMC3630_StartSNIFF( 2, 1 );
+		if( !IS_OPT_DISABLE_ACCELEROMETER() ){
+			V_PRINTF(LB "*** MC3630 First Sleep ");
+			vMC3630_StartSNIFF( 2, 1 );
+		}
 		sAppData.u8LedState = 0;
 		LED_OFF();
 		bPCA9632_LEDStatus(0x00);
@@ -230,7 +250,7 @@ PRSEV_HANDLER_DEF(E_STATE_RUNNING, tsEvent *pEv, teEvent eEvent, uint32 u32evarg
 
 	// 送信処理に移行
 	if (u8sns_cmplt == E_SNS_ALL_CMP) {
-		if(sAppData.sFlash.sData.u32param == 0x01){
+		if( IS_OPT_DICEMODE() ){
 			vAccelEvent_Init( 100 );
 			bAccelEvent_SetData( sObjMC3630.ai16Result[MC3630_X], sObjMC3630.ai16Result[MC3630_Y], sObjMC3630.ai16Result[MC3630_Z], sObjMC3630.u8FIFOSample );
 			uint8 u8e = u8AccelEvent_Top();
@@ -734,7 +754,6 @@ static void vStoreSensorValue() {
 
 static bool_t bSendData( int16 ai16accel[3][32], uint8 u8startAddr, uint8 u8Sample )
 {
-		uint8 i;
 		uint8	au8Data[92];
 		uint8*	q = au8Data;
 
@@ -766,7 +785,11 @@ static bool_t bSendData( int16 ai16accel[3][32], uint8 u8startAddr, uint8 u8Samp
 
 		S_OCTET(0x05);					// Acceleration Event
 		S_OCTET(0x04);
-		S_OCTET( sObjMC3630.u8Event );
+		if( IS_OPT_DISABLE_ACCELEROMETER() ){
+			S_OCTET( 0 );
+		}else{
+			S_OCTET( sObjMC3630.u8Event );
+		}
 
 //		S_OCTET(0x06);					// LED
 //		S_OCTET( sObjMC3630.u8Event );
