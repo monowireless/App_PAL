@@ -7,18 +7,81 @@
 #include "utils.h"
 #include "ccitt8.h"
 #include "Interactive.h"
+
+#ifdef USE_CUE
+#include "App_CUE.h"
+#else
 #include "EndDevice.h"
+#endif
+
 #include "sensor_driver.h"
 #include "MC3630.h"
 #include "accel_event.h"
 
 #include "flash.h"
 
+#define IS_COUNTUP() (sAppData.sFlash.sData.u32param&0x00000001)
+
+//	サイコロの各々の面だったときに送信するデータマクロ
+#define DICE1() \
+	S_OCTET(0x01);\
+	S_OCTET(0x0F);\
+	S_OCTET( 0x00 );\
+	S_OCTET( 0x00 );\
+	S_OCTET( 0x00 );\
+	S_OCTET( 0x00 );\
+	S_OCTET( 0x00 );
+
+#define DICE2() \
+	S_OCTET(0x08);\
+	S_OCTET(0x0F);\
+	S_OCTET( 0x7D );\
+	S_OCTET( 0x00 );\
+	S_OCTET( 0x00 );\
+	S_OCTET( 25 );\
+	S_OCTET( 0x00 );
+
+#define DICE3() \
+	S_OCTET(0x09);\
+	S_OCTET(0x0F);\
+	S_OCTET( 0x7D );\
+	S_OCTET( 0x00 );\
+	S_OCTET( 0x00 );\
+	S_OCTET( 50 );\
+	S_OCTET( 0x00 );
+
+#define DICE4() \
+	S_OCTET(0x0A);\
+	S_OCTET(0x0F);\
+	S_OCTET( 0x7D );\
+	S_OCTET( 0x00 );\
+	S_OCTET( 0x7D );\
+	S_OCTET( 75 );\
+	S_OCTET( 0x00 );
+
+#define DICE5() \
+	S_OCTET(0x0B);\
+	S_OCTET(0x0F);\
+	S_OCTET( 0x7D );\
+	S_OCTET( 0x00 );\
+	S_OCTET( 0x7D );\
+	S_OCTET( 100 );\
+	S_OCTET( 0x00 );
+
+#define DICE6() \
+	S_OCTET(0x0E);\
+	S_OCTET(0x0F);\
+	S_OCTET( 0x7D );\
+	S_OCTET( 0x7D );\
+	S_OCTET( 0x7D );\
+	S_OCTET( 125 );\
+	S_OCTET( 0x00 );
+
 static void vProcessEvCore(tsEvent *pEv, teEvent eEvent, uint32 u32evarg);
 static void vStoreSensorValue();
-static bool_t bSendData( int16 ai16accel[3][32], uint8 u8startAddr, uint8 u8Sample );
-
-#define ABS(c) (c<0?(-1*c):c)
+static bool_t bSendData();
+static bool_t bSendAppTag();
+static bool_t bSendAppTwelite();
 
 static uint8 u8sns_cmplt = 0;
 tsObjData_MC3630 sObjMC3630;
@@ -44,11 +107,19 @@ PRSEV_HANDLER_DEF(E_STATE_IDLE, tsEvent *pEv, teEvent eEvent, uint32 u32evarg) {
 
 			V_PRINTF(LB "*** Cold starting Event");
 			V_PRINTF(LB "* start end device[%d]", u32TickCount_ms & 0xFFFF);
+			V_PRINTF(LB "* Event Mode");
 
 		}
 
 		// RC クロックのキャリブレーションを行う
 		ToCoNet_u16RcCalib(sAppData.sFlash.sData.u16RcClock);
+
+		// 定期送信するときはカウントが0の時と割り込み起床したときだけ送信する
+		if( sAppData.u32SleepCount != 0 && sAppData.bWakeupByButton == FALSE ){
+			V_PRINTF(LB"*** No Send...");
+			ToCoNet_Event_SetState(pEv, E_STATE_APP_SLEEP);
+			return;
+		}
 
 		// センサーがらみの変数の初期化
 		u8sns_cmplt = 0;
@@ -58,17 +129,15 @@ PRSEV_HANDLER_DEF(E_STATE_IDLE, tsEvent *pEv, teEvent eEvent, uint32 u32evarg) {
 			ToCoNet_Event_SetState(pEv, E_STATE_APP_BLINK_LED);
 		}else{
 			if( !sAppData.bWakeupByButton ){
-				V_PRINTF(LB "*** Wake by Timer. Sleep...");
-				ToCoNet_Event_SetState(pEv, E_STATE_APP_SLEEP); // スリープ状態へ遷移
-			}else{
-				// ADC の取得
-				vADC_WaitInit();
-				vSnsObj_Process(&sAppData.sADC, E_ORDER_KICK);
-
-				// センサ値を読み込んで送信する
-				// RUNNING 状態
-				ToCoNet_Event_SetState(pEv, E_STATE_RUNNING);
+				V_PRINTF(LB "*** Wake by Timer.");
 			}
+			// ADC の取得
+			vADC_WaitInit();
+			vSnsObj_Process(&sAppData.sADC, E_ORDER_KICK);
+
+			// センサ値を読み込んで送信する
+			// RUNNING 状態
+			ToCoNet_Event_SetState(pEv, E_STATE_RUNNING);
 		}
 
 	} else {
@@ -85,7 +154,7 @@ PRSEV_HANDLER_DEF(E_STATE_APP_BLINK_LED, tsEvent *pEv, teEvent eEvent, uint32 u3
 	}
 
 	// タイムアウトの場合はスリープする
-	if (ToCoNet_Event_u32TickFrNewState(pEv) > 750 && sObjMC3630.bFinished) {
+	if (ToCoNet_Event_u32TickFrNewState(pEv) > 750) {
 		LED_OFF();
 		sAppData.u8LedState = 0x00;
 		ToCoNet_Event_SetState(pEv, E_STATE_APP_SLEEP); // スリープ状態へ遷移
@@ -100,7 +169,15 @@ PRSEV_HANDLER_DEF(E_STATE_RUNNING, tsEvent *pEv, teEvent eEvent, uint32 u32evarg
 
 	// 送信処理に移行
 	if (u8sns_cmplt == E_SNS_ALL_CMP && sObjMC3630.bFinished) {
-		ToCoNet_Event_SetState(pEv, E_STATE_APP_WAIT_TX);
+		if(sObjMC3630.u8Event == 0xFF){
+			ToCoNet_Event_SetState(pEv, E_STATE_APP_SLEEP);
+		}else{
+			if( IS_COUNTUP() && sObjMC3630.u8Event == 0x10 ){
+				ToCoNet_Event_SetState(pEv, E_STATE_APP_SLEEP);
+			}else{
+				ToCoNet_Event_SetState(pEv, E_STATE_APP_WAIT_TX);
+			}
+		}
 	}
 
 	// タイムアウト
@@ -111,7 +188,6 @@ PRSEV_HANDLER_DEF(E_STATE_RUNNING, tsEvent *pEv, teEvent eEvent, uint32 u32evarg
 }
 
 PRSEV_HANDLER_DEF(E_STATE_APP_WAIT_TX, tsEvent *pEv, teEvent eEvent, uint32 u32evarg) {
-	static uint8 count = 0;
 	if (eEvent == E_EVENT_NEW_STATE) {
 		// ネットワークの初期化
 		if (!sAppData.pContextNwk) {
@@ -128,40 +204,18 @@ PRSEV_HANDLER_DEF(E_STATE_APP_WAIT_TX, tsEvent *pEv, teEvent eEvent, uint32 u32e
 		} else {
 			// 一度初期化したら RESUME
 			ToCoNet_Nwk_bResume(sAppData.pContextNwk);
-		}
+		}	
 
-		if( sObjMC3630.u8Event != ACCEL_EVENT_NOTANALYZED ){
-			if( sObjMC3630.u8FIFOSample > 16 ){
-				count = 2;
-				if ( bSendData( sObjMC3630.ai16Result, 0, 16 ) ) {
-					ToCoNet_Tx_vProcessQueue(); // 送信処理をタイマーを待たずに実行する
-				} else {
-					//ToCoNet_Event_SetState(pEv, E_STATE_APP_SLEEP); // 送信失敗
-				}
-				V_PRINTF(" FR=%04X", sAppData.u16frame_count);
-				if ( bSendData( sObjMC3630.ai16Result, 16, sObjMC3630.u8FIFOSample-16 ) ) {
-					ToCoNet_Tx_vProcessQueue(); // 送信処理をタイマーを待たずに実行する
-				} else {
-					ToCoNet_Event_SetState(pEv, E_STATE_APP_SLEEP); // 送信失敗
-				}
-					V_PRINTF(" FR=%04X", sAppData.u16frame_count);
-			}else{
-				count = 1;
-				if ( bSendData( sObjMC3630.ai16Result, 0, sObjMC3630.u8FIFOSample ) ) {
-					ToCoNet_Tx_vProcessQueue(); // 送信処理をタイマーを待たずに実行する
-				} else {
-					ToCoNet_Event_SetState(pEv, E_STATE_APP_SLEEP); // 送信失敗
-				}
-				V_PRINTF(" FR=%04X", sAppData.u16frame_count);
-			}
+		if( bSendData() ){
+			ToCoNet_Tx_vProcessQueue(); // 送信処理をタイマーを待たずに実行する
+		} else {
+			ToCoNet_Event_SetState(pEv, E_STATE_APP_SLEEP); // 送信失敗
 		}
-//	}else{
-//		ToCoNet_Event_SetState(pEv, E_STATE_APP_SLEEP); // スリープ状態へ遷移
+		V_PRINTF(" FR=%04X", sAppData.u16frame_count);
 	}
 
 	if (eEvent == E_ORDER_KICK) { // 送信完了イベントが来たのでスリープする
-		count--;
-		if( count == 0) ToCoNet_Event_SetState(pEv, E_STATE_APP_SLEEP); // 寝る
+		ToCoNet_Event_SetState(pEv, E_STATE_APP_SLEEP); // 寝る
 	}
 
 	// タイムアウト
@@ -173,27 +227,36 @@ PRSEV_HANDLER_DEF(E_STATE_APP_WAIT_TX, tsEvent *pEv, teEvent eEvent, uint32 u32e
 
 PRSEV_HANDLER_DEF(E_STATE_APP_SLEEP, tsEvent *pEv, teEvent eEvent, uint32 u32evarg) {
 	if (eEvent == E_EVENT_NEW_STATE) {
-		if (sObjMC3630.bFinished) {
-			V_PRINTF(LB"! Sleeping...");
-			V_FLUSH();
-
-			if (sAppData.pContextNwk) {
-				ToCoNet_Nwk_bPause(sAppData.pContextNwk);
-			}
-
-			vMC3630_ClearInterrupReg();
-
-			pEv->bKeepStateOnSetAll = FALSE; // スリープ復帰の状態を維持しない
-
-			vAHI_UartDisable(UART_PORT); // UART を解除してから(このコードは入っていなくても動作は同じ)
-
-			(void)u32AHI_DioInterruptStatus(); // clear interrupt register
-			vAHI_DioWakeEnable( u32DioPortWakeUp, 0); // ENABLE DIO WAKE SOURCE
-			vAHI_DioWakeEdge(0, u32DioPortWakeUp ); // 割り込みエッジ(立上がりに設定)
-
-			// 周期スリープに入る
-			vSleep(10000, FALSE, FALSE);
+	}
+	if (sObjMC3630.bFinished) {
+		// スリープ時間を計算する
+		uint32 u32Sleep = 60000;	// 60 * 1000ms
+		if( sAppData.u32SleepCount == 0 && sAppData.u8Sleep_sec ){
+			u32Sleep = sAppData.u8Sleep_sec*1000;
 		}
+
+		V_PRINTF(LB"! Sleeping... %d", u32Sleep);
+		V_FLUSH();
+
+		sObjMC3630.bFinished = FALSE;
+
+		if (sAppData.pContextNwk) {
+			ToCoNet_Nwk_bPause(sAppData.pContextNwk);
+		}
+
+		if( !sAppData.bColdStart ) vMC3630_ClearInterrupReg();
+		else if( IS_APPCONF_OPT_DICEMODE() )  vMC3630_StartFIFO();
+
+		pEv->bKeepStateOnSetAll = FALSE; // スリープ復帰の状態を維持しない
+
+		vAHI_UartDisable(UART_PORT); // UART を解除してから(このコードは入っていなくても動作は同じ)
+
+		(void)u32AHI_DioInterruptStatus(); // clear interrupt register
+		vAHI_DioWakeEnable( u32DioPortWakeUp, 0); // ENABLE DIO WAKE SOURCE
+		vAHI_DioWakeEdge(0, u32DioPortWakeUp ); // 割り込みエッジ(立上がりに設定)
+
+		// 周期スリープに入る
+		vSleep( u32Sleep, !sAppData.bWakeupByButton, FALSE);
 	}
 }
 
@@ -364,62 +427,188 @@ static void vStoreSensorValue() {
 	sAppData.u8Batt = ENCODE_VOLT(sAppData.sObjADC.ai16Result[TEH_ADC_IDX_VOLT]);
 }
 
-static bool_t bSendData( int16 ai16accel[3][32], uint8 u8startAddr, uint8 u8Sample )
+static bool_t bSendData()
 {
-		uint8 i;
-		uint8	au8Data[92];
-		uint8*	q = au8Data;
+	if(IS_APPCONF_OPT_2525AMODE()) return bSendAppTag();
+	if(IS_APPCONF_OPT_APPTWELITEMODE()) return bSendAppTwelite();
 
-		if( sPALData.u8EEPROMStatus != 0 ){
-			S_OCTET(3+u8Sample);		// データ数
-			S_OCTET(0x32);
+	uint8	au8Data[92];
+	uint8*	q = au8Data;
+
+	if( sPALData.u8EEPROMStatus != 0 ){
+		S_OCTET(5);		// データ数
+		S_OCTET(0x32);
+		S_OCTET(0x00);
+		S_OCTET( sPALData.u8EEPROMStatus );
+	}else{
+		S_OCTET(4);		// データ数
+	}
+
+	S_OCTET(0x34);					// Transmission factor
+	S_OCTET(0x80);
+	if( sAppData.bWakeupByButton ){
+		S_OCTET(0x04);
+		S_OCTET(0x02);		
+	}else{
+		S_OCTET(0x35);
+		S_OCTET(0x00)
+	}
+
+	S_OCTET(0x05);					// Acceleration Event
+	S_OCTET(0x04);
+	S_OCTET( sObjMC3630.u8Event );
+
+	S_OCTET(0x30);					// 電源電圧
+	S_OCTET(0x01)
+	S_OCTET(sAppData.u8Batt);
+
+	S_OCTET(0x30);					// AI1(ADC1)
+	S_OCTET(0x02)
+	S_BE_WORD(sAppData.u16Adc[0]);
+
+
+
+	sAppData.u16frame_count++;
+
+	return bTransmitToParent( sAppData.pContextNwk, au8Data, q-au8Data );
+}
+
+static bool_t bSendAppTag()
+{
+	uint8	au8Data[92];
+	uint8*	q = au8Data;
+
+	S_OCTET(sAppData.u8Batt);
+	S_BE_WORD(sAppData.u16Adc[0]);
+	S_BE_WORD(0x0000);
+
+	if( IS_APPCONF_OPT_DICEMODE() ){
+		S_BE_WORD( sObjMC3630.u8Event );
+		S_BE_WORD( 0x0000 );
+		S_BE_WORD( 0x0000 );
+		S_OCTET(0xFD);
+	}else if( IS_APPCONF_OPT_EVENTMODE() ){
+		S_BE_WORD( sObjMC3630.ai16Result[0][0] );
+		S_BE_WORD( sObjMC3630.ai16Result[1][0] );
+		S_BE_WORD( sObjMC3630.ai16Result[2][0] );
+		if((sObjMC3630.u8Event>>3) == ACCEL_EVENT_TAP){
+			S_OCTET(0x01);
+
+		}else
+		if((sObjMC3630.u8Event>>3) == ACCEL_EVENT_MOVE){
+			S_OCTET(0x08);
+		}else
+		{
+			S_OCTET(0x10);
+		}
+		
+	}
+
+	sAppData.u16frame_count++;
+	return bTransmitToAppTag( sAppData.pContextNwk, au8Data, q-au8Data );
+}
+
+bool_t bSendAppTwelite()
+{
+	uint8	au8Data[92];
+	uint8*	q = au8Data;
+
+	switch( sObjMC3630.u8Event ){
+		case 0:
+			S_OCTET(0);
+			S_OCTET(0x0F);
+			S_BE_DWORD(0);
+			S_OCTET(0);
+			break;
+		case 1:
+			DICE1();
+			break;
+		case 2:
+			if( IS_COUNTUP() ){
+				S_OCTET(0x02);
+				S_OCTET(0x0F);
+				S_OCTET( 0x00 );
+				S_OCTET( 0x00 );
+				S_OCTET( 0x00 );
+				S_OCTET( 25 );
+				S_OCTET( 0x00 )
+			}else{
+				DICE2();
+			}
+			break;
+		case 3:
+			if( IS_COUNTUP() ){
+				S_OCTET(0x04);
+				S_OCTET(0x0F);
+				S_OCTET( 0x00 );
+				S_OCTET( 0x00 );
+				S_OCTET( 0x00 );
+				S_OCTET( 50 );
+				S_OCTET( 0x00 )
+			}else{
+				DICE3();
+			}
+			break;
+		case 4:
+			if( IS_COUNTUP() ){
+				S_OCTET(0x08);
+				S_OCTET(0x0F);
+				S_OCTET( 0x00 );
+				S_OCTET( 0x00 );
+				S_OCTET( 0x00 );
+				S_OCTET( 75 );
+				S_OCTET( 0x00 )
+			}else{
+				DICE4();
+			}
+			break;
+		case 5:
+			if( IS_COUNTUP() ){
+				S_OCTET(0x00);
+				S_OCTET(0x0F);
+				S_OCTET( 0x7D );
+				S_OCTET( 0x00 );
+				S_OCTET( 0x00 );
+				S_OCTET( 100 );
+				S_OCTET( 0x00 )
+			}else{
+				DICE5();
+			}
+			break;
+		case 6:
+			if( IS_COUNTUP() ){
+				S_OCTET(0x00);
+				S_OCTET(0x0F);
+				S_OCTET( 0x00 );
+				S_OCTET( 0x7D );
+				S_OCTET( 0x00 );
+				S_OCTET( 125 );
+				S_OCTET( 0x00 )
+			}else{
+				DICE6();
+			}
+
+			break;
+		case 8:
+			S_OCTET(0x01);
+			S_OCTET(0x0F);
 			S_OCTET(0x00);
-			S_OCTET( sPALData.u8EEPROMStatus );
-		}else{
-			S_OCTET(2+u8Sample);		// データ数
-		}
-
-		S_OCTET(0x30);					// 電源電圧
-		S_OCTET(0x01)
-		S_OCTET(sAppData.u8Batt);
-
-		S_OCTET(0x30);					// AI1(ADC1)
-		S_OCTET(0x02)
-		S_BE_WORD(sAppData.u16Adc[0]);
-
-
-		S_OCTET(0x04);					// Acceleration
-		S_OCTET( sObjMC3630.u8Interrupt );		// 拡張用1バイト
-		S_OCTET( u8Sample );				// サンプル数
-		S_OCTET( sObjMC3630.u8SampleFreq-MC3630_SAMPLING25HZ );		// サンプリング周波数
-		S_OCTET( 12 );			// 送信するデータの分解能
-
-		V_PRINTF( LB"sample = %d", u8Sample );
-		V_PRINTF( LB"freq = %d", sObjMC3630.u8SampleFreq-MC3630_SAMPLING25HZ );
-
-
-		uint16 u16x[2], u16y[2], u16z[2];
-		for( i=u8startAddr; i<u8Sample+u8startAddr; i+=2 ){
-			u16x[0] = (ai16accel[MC3630_X][i]>>3)&0x0FFF;
-			u16x[1] = (ai16accel[MC3630_X][i+1]>>3)&0x0FFF;
-			u16y[0] = (ai16accel[MC3630_Y][i]>>3)&0x0FFF;
-			u16y[1] = (ai16accel[MC3630_Y][i+1]>>3)&0x0FFF;
-			u16z[0] = (ai16accel[MC3630_Z][i]>>3)&0x0FFF;
-			u16z[1] = (ai16accel[MC3630_Z][i+1]>>3)&0x0FFF;
-
-			// 12bitに変換する
-			S_OCTET((u16x[0]&0x0FF0)>>4);
-			S_OCTET( ((u16x[0]&0x0F)<<4) | ((u16y[0]&0x0F00)>>8) );
-			S_OCTET(u16y[0]&0x00FF);
-			S_OCTET((u16z[0]&0x0FF0)>>4);
-			S_OCTET( ((u16z[0]&0x0F)<<4) | ((u16x[1]&0x0F00)>>8) );
-			S_OCTET(u16x[1]&0x00FF);
-			S_OCTET((u16y[1]&0x0FF0)>>4);
-			S_OCTET( ((u16y[1]&0x0F)<<4) | ((u16z[1]&0x0F00)>>8) );
-			S_OCTET(u16z[1]&0x00FF);
-		}
-
-		sAppData.u16frame_count++;
-
-		return bTransmitToParent( sAppData.pContextNwk, au8Data, q-au8Data );
+			S_OCTET(0x00);
+			S_OCTET(0x00);
+			S_OCTET(0x00);
+			S_OCTET(0x00);
+			break;
+		case 16:
+			S_OCTET(0x01);
+			S_OCTET(0x0F);
+			S_OCTET(0x00);
+			S_OCTET(0x00);
+			S_OCTET(0x00);
+			S_OCTET(0x00);
+			S_OCTET(0x00);
+			break;
+		default:
+			return FALSE;
+	}
+	return bTransmitToAppTwelite( au8Data, q-au8Data );
 }

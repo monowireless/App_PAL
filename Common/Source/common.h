@@ -11,10 +11,13 @@
 
 #include "ToCoNet.h"
 
+uint64 u64GetTimer_ms();
 void vSleep(uint32 u32SleepDur_ms, bool_t bPeriodic, bool_t bDeep);
 void vResetWithMsg(tsFILE *psSerStream, string str);
 
 bool_t bTransmitToParent(tsToCoNet_Nwk_Context *pNwk, uint8 *pu8Data, uint8 u8Len);
+bool_t bTransmitToAppTag(tsToCoNet_Nwk_Context *pNwk, uint8 *pu8Data, uint8 u8Len);
+bool_t bTransmitToAppTwelite( uint8 *pu8Data, uint8 u8Len );
 bool_t bRegAesKey(uint32 u32seed);
 bool_t bGetPALOptions( void );
 
@@ -29,11 +32,24 @@ extern uint32 u32DioPortWakeUp;
 #define PKT_ID_AMB 0x02
 #define PKT_ID_MOT 0x03
 #define PKT_ID_LED 0x04
-#define PKT_ID_IRC 0x05
+#define PKT_ID_CUE 0x05
+#define PKT_ID_IRC 0x06
 
 /*
  * 標準ポート定義 (TWELITE PAL)
  */
+#ifdef OTA
+#warning "IO CONF IS FOR OTA!"
+#define PORT_OUT1 16 // DIO16/18 をスワップ
+#define PORT_OUT2 19
+#define PORT_OUT3 4
+#define PORT_OUT4 9
+
+#define PORT_INPUT1 12
+#define PORT_INPUT2 13
+#define PORT_INPUT3 11
+#define PORT_INPUT4 18 // DIO16/18 をスワッ
+#endif
 // 子機用配置
 //#warning "IO CONF IS FOR ENDDEVICE"
 #define INPUT_DIP1 1

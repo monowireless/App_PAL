@@ -7,7 +7,12 @@
 #include "utils.h"
 
 #include "Interactive.h"
+
+#ifdef USE_CUE
+#include "App_CUE.h"
+#else
 #include "EndDevice.h"
+#endif
 
 #include "sensor_driver.h"
 #include "SHTC3.h"

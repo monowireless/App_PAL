@@ -9,7 +9,12 @@
 #include "utils.h"
 
 #include "Interactive.h"
+
+#ifdef USE_CUE
+#include "App_CUE.h"
+#else
 #include "EndDevice.h"
+#endif
 
 #include "config.h"
 
@@ -39,8 +44,8 @@ static void vProcessEvCore(tsEvent *pEv, teEvent eEvent, uint32 u32evarg);
  */
 PRSEV_HANDLER_DEF(E_STATE_IDLE, tsEvent *pEv, teEvent eEvent, uint32 u32evarg) {
 	if (eEvent == E_EVENT_START_UP) {
-		vSerInitMessage();
 		Interactive_vSetMode(TRUE,0);
+		vSerInitMessage();
 		vfPrintf(&sSerStream, LB LB "*** Entering Config Mode ***");
 
 		sAppData.sFlash.sData.u16RcClock = ToCoNet_u16RcCalib(0);

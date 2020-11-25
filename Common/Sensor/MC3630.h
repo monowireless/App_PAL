@@ -115,6 +115,8 @@ PUBLIC void vMC3630_ClearInterrupReg();
 PUBLIC uint8 u8MC3630_ReadSamplingFrequency();
 PUBLIC void vMC3630_Wakeup();
 PUBLIC void vMC3630_Sleep();
+PUBLIC void vMC3630_Powerdown();
+PUBLIC bool_t bMC3630_IsActive();
 PUBLIC void vMC3630_SetWakeAGAIN(uint8 u8num);
 PUBLIC void vMC3630_SetSniffAGAIN(uint8 u8num);
 PUBLIC void vMC3630_SniffThreshold( uint8 u8axis, uint8 u8value );

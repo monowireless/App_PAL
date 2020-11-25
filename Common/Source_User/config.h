@@ -33,18 +33,34 @@ extern "C" {
 #define UART_PORT			E_AHI_UART_0
 
 /* Specify the PAN ID and CHANNEL to be used by tags, readers and gateway */
-#define APP_ID				0x67726305
 
+#ifdef USE_CUE
+#define APP_NAME            "App_CUE"
+#define APP_ID				0x67720102
+#define CHANNEL				18
+#else
 #define APP_NAME            "App_PAL"
+#define APP_ID				0x67726305
 #define CHANNEL				15
+#endif
+
 #define CHMASK              (1UL << CHANNEL)
 
 #define DEFAULT_ENC_KEY     (0xA5A5A5A5)
 
+// リモート設定用
+#define APP_ID_OTA		0x67726406
+#define CHANNEL_OTA		11
+#define SHORTADDR_OTA	0x0F0F
+
 /**
  * 子機のデフォルトスリープ周期
  */
+#ifdef USE_CUE
+#define DEFAULT_SLEEP_DUR (5UL)
+#else
 #define DEFAULT_SLEEP_DUR (60UL)
+#endif
 
 /*************************************************************************/
 /***        TARGET PCB                                                 ***/

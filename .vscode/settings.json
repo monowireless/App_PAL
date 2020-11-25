@@ -1,8 +1,7 @@
 {
     "C_Cpp.errorSquiggles": "Enabled",
     "C_Cpp.default.includePath": [
-        "./App_PAL_EndDevice/**",
-        "./Common/**",
+        "./**",
         "${env:MWSDK_ROOT}/Tools/VSCode/**",
         "${env:MWSDK_TWENET_LIBSRC}/include/**",
         "${env:MWSDK_TWENET_LIBSRC}/src/**",
@@ -11,8 +10,7 @@
         "../../TWENET/current/src/**"
     ],
     "C_Cpp.default.browse.path": [
-        "./App_PAL_EndDevice/**",
-        "./Common/**",
+        "./**",
         "${env:MWSDK_ROOT}/Tools/VSCode/**",
         "${env:MWSDK_TWENET_LIBSRC}/include/**",
         "${env:MWSDK_TWENET_LIBSRC}/src/**",

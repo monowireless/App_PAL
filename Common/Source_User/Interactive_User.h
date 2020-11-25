@@ -34,10 +34,22 @@
 #define IS_APPCONF_OPT_TO_ROUTER() ((sAppData.sFlash.sData.u32Opt & E_APPCONF_OPT_TO_ROUTER) != 0) //!< E_APPCONF_OPT_TO_ROUTER 判定
 
 /**
+ * NOTICE PALに対して送信するモードに強制する
+ */
+#define E_APPCONF_OPT_TO_NOTICE 0x00000010UL
+#define IS_APPCONF_OPT_TO_NOTICE() ((sAppData.sFlash.sData.u32Opt & E_APPCONF_OPT_TO_NOTICE) != 0)
+
+/**
  * 起床時間のランダマイズを無効にする
  */
 #define E_APPCONF_OPT_WAKE_RANDOM 0x00000040UL
 #define IS_APPCONF_OPT_WAKE_RANDOM() ((sAppData.sFlash.sData.u32Opt & E_APPCONF_OPT_WAKE_RANDOM) != 0) //!< E_APPCONF_OPT_WAKE_RANDOM 判定
+
+/**
+ * OTAを無効にする
+ */
+#define E_APPCONF_OPT_DISABLE_OTA 0x00000040UL
+#define IS_APPCONF_OPT_DISABLE_OTA() ((sAppData.sFlash.sData.u32Opt & E_APPCONF_OPT_DISABLE_OTA) != 0) //!< E_APPCONF_OPT_WAKE_RANDOM 判定
 
 /**
  * 書式モード(バイナリ)

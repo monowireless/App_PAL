@@ -7,16 +7,22 @@
 #include "utils.h"
 #include "ccitt8.h"
 #include "Interactive.h"
-#include "EndDevice.h"
 #include "sensor_driver.h"
 #include "MC3630.h"
 
 #include "flash.h"
 
+#ifdef USE_CUE
+#include "App_CUE.h"
+#else
+#include "EndDevice.h"
+#endif
+
 static void vProcessEvCore(tsEvent *pEv, teEvent eEvent, uint32 u32evarg);
 static void vStoreSensorValue();
 static void vProcessMC3630(teEvent eEvent);
 static bool_t bSendData( int16 ai16accel[3][32], uint8 u8startAddr, uint8 u8Sample );
+static bool_t bSendAppTag( int16 ai16accel[3][32], uint8 u8startAddr, uint8 u8Sample );
 
 #define ABS(c) (c<0?(-1*c):c)
 
@@ -28,7 +34,7 @@ static uint8 u8ConMax = 0;
 static uint8 u8FIFOCount = 0;
 static bool_t bContinuous = FALSE;
 static bool_t bActive = FALSE;
-static bool_t bEvent = FALSE;
+//static bool_t bEvent = FALSE;
 static uint16 u16Threshold = 0;
 static bool_t bShortSleep = FALSE;
 
@@ -54,8 +60,6 @@ PRSEV_HANDLER_DEF(E_STATE_IDLE, tsEvent *pEv, teEvent eEvent, uint32 u32evarg) {
 
 			V_PRINTF(LB "*** Cold starting");
 			V_PRINTF(LB "* start end device[%d]", u32TickCount_ms & 0xFFFF);
-
-
 		}
 
 		// RC クロックのキャリブレーションを行う
@@ -86,24 +90,38 @@ PRSEV_HANDLER_DEF(E_STATE_IDLE, tsEvent *pEv, teEvent eEvent, uint32 u32evarg) {
 			bShortSleep = TRUE;
 			ToCoNet_Event_SetState(pEv, E_STATE_APP_SLEEP);
 		}else{
-			vSnsObj_Process(&sSnsObj, E_ORDER_KICK);
-			if (bSnsObj_isComplete(&sSnsObj)) {
-				// 即座に完了した時はセンサーが接続されていない、通信エラー等
-				u8sns_cmplt |= E_SNS_MC3630_CMP;
-				V_PRINTF(LB "*** MC3630 comm err?");
-				ToCoNet_Event_SetState(pEv, E_STATE_APP_SLEEP); // スリープ状態へ遷移
-				return;
+			if( !bMC3630_IsActive() ){
+				if(u8FIFOCount == 0){
+					u8FIFOCount = u8ConMax;
+					V_PRINTF(LB "*** MC3630 Start Measurement ");
+					vMC3630_StartFIFO();
+				}
+				bShortSleep = TRUE;
+				ToCoNet_Event_SetState(pEv, E_STATE_APP_SLEEP);
+			}else{
+				vSnsObj_Process(&sSnsObj, E_ORDER_KICK);
+				if (bSnsObj_isComplete(&sSnsObj)) {
+					// 即座に完了した時はセンサーが接続されていない、通信エラー等
+					u8sns_cmplt |= E_SNS_MC3630_CMP;
+					V_PRINTF(LB "*** MC3630 comm err?");
+					ToCoNet_Event_SetState(pEv, E_STATE_APP_SLEEP); // スリープ状態へ遷移
+					return;
+				}
+
+				sObjMC3630.u8Interrupt = u8MC3630_ReadInterrupt();
+				if( (sObjMC3630.u8Interrupt&0x44) == 0 ){
+					ToCoNet_Event_SetState(pEv, E_STATE_APP_SLEEP);
+					return;
+				}
+
+				// ADC の取得
+				vADC_WaitInit();
+				vSnsObj_Process(&sAppData.sADC, E_ORDER_KICK);
+
+				// センサ値を読み込んで送信する
+				// RUNNING 状態
+				ToCoNet_Event_SetState(pEv, E_STATE_RUNNING);
 			}
-
-			sObjMC3630.u8Interrupt = u8MC3630_ReadInterrupt();
-
-			// ADC の取得
-			vADC_WaitInit();
-			vSnsObj_Process(&sAppData.sADC, E_ORDER_KICK);
-
-			// センサ値を読み込んで送信する
-			// RUNNING 状態
-			ToCoNet_Event_SetState(pEv, E_STATE_RUNNING);
 		}
 
 	} else {
@@ -128,8 +146,11 @@ PRSEV_HANDLER_DEF(E_STATE_APP_BLINK_LED, tsEvent *pEv, teEvent eEvent, uint32 u3
 		}
 		V_PRINTF(LB"TH = %d", u16Threshold);
 
+
 		uint8 u8SampleNum = 16;
-		if(bActive){
+		if( IS_APPCONF_OPT_2525AMODE() ){
+			u8SampleNum = 10;
+		}else if(bActive){
 			u8SampleNum = 30;
 		}
 
@@ -375,7 +396,7 @@ PRSEV_HANDLER_DEF(E_STATE_APP_SLEEP, tsEvent *pEv, teEvent eEvent, uint32 u32eva
 //		vAHI_DioSetDirection( u32DioPortWakeUp, 0); // set as input
 		(void)u32AHI_DioInterruptStatus(); // clear interrupt register
 		vAHI_DioWakeEnable( u32DioPortWakeUp, 0); // ENABLE DIO WAKE SOURCE
-		vAHI_DioWakeEdge(0, u32DioPortWakeUp ); // 割り込みエッジ(立上がりに設定)
+		vAHI_DioWakeEdge(0, u32DioPortWakeUp ); // 割り込みエッジ(立下がりに設定)
 
 		if( bShortSleep ){
 			vPortSetLo(WDT_OUT);
@@ -589,64 +610,96 @@ static void vStoreSensorValue() {
 
 static bool_t bSendData( int16 ai16accel[3][32], uint8 u8startAddr, uint8 u8Sample )
 {
-		uint8 i;
-		uint8	au8Data[92];
-		uint8*	q = au8Data;
+	if(IS_APPCONF_OPT_2525AMODE()) return bSendAppTag( ai16accel, u8startAddr, u8Sample );
 
-		if( sPALData.u8EEPROMStatus != 0 ){
-			S_OCTET(3+u8Sample);		// データ数
-			S_OCTET(0x32);
-			S_OCTET(0x00);
-			S_OCTET( sPALData.u8EEPROMStatus );
-		}else{
-			S_OCTET(2+u8Sample);		// データ数
-		}
+	uint8 i;
+	uint8	au8Data[92];
+	uint8*	q = au8Data;
 
-		S_OCTET(0x30);					// 電源電圧
-		S_OCTET(0x01)
-		S_OCTET(sAppData.u8Batt);
+	if( sPALData.u8EEPROMStatus != 0 ){
+		S_OCTET(3+u8Sample);		// データ数
+		S_OCTET(0x32);
+		S_OCTET(0x00);
+		S_OCTET( sPALData.u8EEPROMStatus );
+	}else{
+		S_OCTET(2+u8Sample);		// データ数
+	}
 
-		S_OCTET(0x30);					// AI1(ADC1)
-		S_OCTET(0x02)
-		S_BE_WORD(sAppData.u16Adc[0]);
+	S_OCTET(0x30);					// 電源電圧
+	S_OCTET(0x01)
+	S_OCTET(sAppData.u8Batt);
 
-
-		S_OCTET(0x04);					// Acceleration
-		S_OCTET( sObjMC3630.u8Interrupt );		// 拡張用1バイト
-		S_OCTET( u8Sample );				// サンプル数
-		S_OCTET( sObjMC3630.u8SampleFreq-MC3630_SAMPLING25HZ );		// サンプリング周波数
-		S_OCTET( 12 );			// 送信するデータの分解能
-
-		V_PRINTF( LB"sample = %d", u8Sample );
-		V_PRINTF( LB"freq = %d", sObjMC3630.u8SampleFreq-MC3630_SAMPLING25HZ );
+	S_OCTET(0x30);					// AI1(ADC1)
+	S_OCTET(0x02)
+	S_BE_WORD(sAppData.u16Adc[0]);
 
 
-		uint16 u16x[2], u16y[2], u16z[2];
-		for( i=u8startAddr; i<u8Sample+u8startAddr; i+=2 ){
-			u16x[0] = (ai16accel[MC3630_X][i]>>3)&0x0FFF;
-			u16x[1] = (ai16accel[MC3630_X][i+1]>>3)&0x0FFF;
-			u16y[0] = (ai16accel[MC3630_Y][i]>>3)&0x0FFF;
-			u16y[1] = (ai16accel[MC3630_Y][i+1]>>3)&0x0FFF;
-			u16z[0] = (ai16accel[MC3630_Z][i]>>3)&0x0FFF;
-			u16z[1] = (ai16accel[MC3630_Z][i+1]>>3)&0x0FFF;
+	S_OCTET(0x04);					// Acceleration
+	S_OCTET( sObjMC3630.u8Interrupt );		// 拡張用1バイト
+	S_OCTET( u8Sample );				// サンプル数
+	S_OCTET( sObjMC3630.u8SampleFreq-MC3630_SAMPLING25HZ );		// サンプリング周波数
+	S_OCTET( 12 );			// 送信するデータの分解能
 
-			// 12bitに変換する
-			S_OCTET((u16x[0]&0x0FF0)>>4);
-			S_OCTET( ((u16x[0]&0x0F)<<4) | ((u16y[0]&0x0F00)>>8) );
-			S_OCTET(u16y[0]&0x00FF);
-			S_OCTET((u16z[0]&0x0FF0)>>4);
-			S_OCTET( ((u16z[0]&0x0F)<<4) | ((u16x[1]&0x0F00)>>8) );
-			S_OCTET(u16x[1]&0x00FF);
-			S_OCTET((u16y[1]&0x0FF0)>>4);
-			S_OCTET( ((u16y[1]&0x0F)<<4) | ((u16z[1]&0x0F00)>>8) );
-			S_OCTET(u16z[1]&0x00FF);
-		}
+	V_PRINTF( LB"sample = %d", u8Sample );
+	V_PRINTF( LB"freq = %d", sObjMC3630.u8SampleFreq-MC3630_SAMPLING25HZ );
 
-		sAppData.u16frame_count++;
 
-		if( !bContinuous ){
-			u8FIFOCount--;
-		}
+	uint16 u16x[2], u16y[2], u16z[2];
+	for( i=u8startAddr; i<u8Sample+u8startAddr; i+=2 ){
+		u16x[0] = (ai16accel[MC3630_X][i]>>3)&0x0FFF;
+		u16x[1] = (ai16accel[MC3630_X][i+1]>>3)&0x0FFF;
+		u16y[0] = (ai16accel[MC3630_Y][i]>>3)&0x0FFF;
+		u16y[1] = (ai16accel[MC3630_Y][i+1]>>3)&0x0FFF;
+		u16z[0] = (ai16accel[MC3630_Z][i]>>3)&0x0FFF;
+		u16z[1] = (ai16accel[MC3630_Z][i+1]>>3)&0x0FFF;
 
-		return bTransmitToParent( sAppData.pContextNwk, au8Data, q-au8Data );
+		// 12bitに変換する
+		S_OCTET((u16x[0]&0x0FF0)>>4);
+		S_OCTET( ((u16x[0]&0x0F)<<4) | ((u16y[0]&0x0F00)>>8) );
+		S_OCTET(u16y[0]&0x00FF);
+		S_OCTET((u16z[0]&0x0FF0)>>4);
+		S_OCTET( ((u16z[0]&0x0F)<<4) | ((u16x[1]&0x0F00)>>8) );
+		S_OCTET(u16x[1]&0x00FF);
+		S_OCTET((u16y[1]&0x0FF0)>>4);
+		S_OCTET( ((u16y[1]&0x0F)<<4) | ((u16z[1]&0x0F00)>>8) );
+		S_OCTET(u16z[1]&0x00FF);
+	}
+
+	sAppData.u16frame_count++;
+
+	if( !bContinuous ){
+		u8FIFOCount--;
+	}
+
+	return bTransmitToParent( sAppData.pContextNwk, au8Data, q-au8Data );
+}
+
+static bool_t bSendAppTag( int16 ai16accel[3][32], uint8 u8startAddr, uint8 u8Sample )
+{
+	uint8 i;
+	uint8	au8Data[92];
+	uint8*	q = au8Data;
+
+	S_OCTET(sAppData.u8Batt);
+	S_BE_WORD(sAppData.u16Adc[0]);
+	S_BE_WORD(0x0000);
+	S_BE_WORD(ai16accel[0][0]);
+	S_BE_WORD(ai16accel[1][0]);
+	S_BE_WORD(ai16accel[2][0]);
+	S_OCTET(0xFA);
+	S_OCTET(u8Sample);
+
+	for(i=1;i<u8Sample;i++){
+		S_BE_WORD(ai16accel[0][i]);
+		S_BE_WORD(ai16accel[1][i]);
+		S_BE_WORD(ai16accel[2][i]);
+	}
+
+	sAppData.u16frame_count++;
+
+	if( !bContinuous ){
+		u8FIFOCount--;
+	}
+
+	return bTransmitToAppTag( sAppData.pContextNwk, au8Data, q-au8Data );
 }

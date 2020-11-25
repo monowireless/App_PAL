@@ -23,6 +23,7 @@ typedef struct {
 	// wakeup status
 	bool_t bWakeupByButton; //!< DIO で RAM HOLD Wakeup した場合 TRUE
 	uint8 u8WakeupByTimer;	//!< DIOで起きた場合0、WakeTimer0は1、Waketimer1は2
+	uint32 u32WakeupDIOStatus;	//!< 起床したときのDIO
 	bool_t bColdStart; //!< TRUEだったらColdStart
 
 	// Network context

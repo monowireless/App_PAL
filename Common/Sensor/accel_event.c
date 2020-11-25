@@ -9,7 +9,13 @@
 #include "AppHardwareApi.h"
 #include "string.h"
 #include "utils.h"
+
+#ifdef USE_CUE
+#include "App_CUE.h"
+#else
 #include "EndDevice.h"
+#endif
+
 #include "Interactive.h"
 #include "config.h"
 
@@ -262,7 +268,7 @@ PUBLIC bool_t bAccelEvent_IsMove( tsAccelEventData* sData )
 			}
 		}else{
 			// 2サンプル以下はノイズとみなす
-			if(peaklength > 10){
+			if(peaklength > 5){
 				sData->u8StartSample = startsample;
 				break;
 			}else{
@@ -285,7 +291,7 @@ PUBLIC bool_t bAccelEvent_IsMove( tsAccelEventData* sData )
 #endif
 	}
 
-	if( peaklength > 10 ){
+	if( peaklength > 5 ){
 		sData->eEvent = ACCEL_EVENT_MOVE;
 		sData->u32PeakPower = peakpower;
 		sData->u8PeakLength = peaklength;
@@ -299,7 +305,7 @@ PUBLIC bool_t bAccelEvent_IsMove( tsAccelEventData* sData )
 PUBLIC uint8 u8AccelEvent_Top( void )
 {
 	uint32 u32norm = u32Calc_FutureValue( accels[0][samples-1], accels[1][samples-1], accels[2][samples-1] );
-	if( u32norm < 900 || 1100 < u32norm ){
+	if( u32norm < 800 || 1200 < u32norm ){
 		V_PRINTF(LB"Out of range : %d/ %d, %d, %d", u32norm, accels[0][28], accels[1][28], accels[2][28] );
 		return 0xFF;		// 3軸の加速度の大きさが範囲を超えているため、おそらく動いているから判定不能
 	}

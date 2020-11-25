@@ -7,14 +7,18 @@
 #include "utils.h"
 
 #include "Interactive.h"
+
+#ifdef USE_CUE
+#include "App_CUE.h"
+#include "SPI.h"
+#include "MC3630.h"
+#else
 #include "EndDevice.h"
+#endif
 
 static void vProcessEvCore(tsEvent *pEv, teEvent eEvent, uint32 u32evarg);
 static void vStoreSensorValue();
 
-/**
- * 定期送信を行う
- */
 #define E_APPCONF_OPT_WAKE_PERIODIC 0x00000001UL
 #define IS_APPCONF_OPT_WAKE_PERIODIC() ((sAppData.sFlash.sData.u32param & E_APPCONF_OPT_WAKE_PERIODIC) != 0)
 #define E_APPCONF_OPT_EVENT_INTEGRATION 0x00000002UL
@@ -45,6 +49,16 @@ PRSEV_HANDLER_DEF(E_STATE_IDLE, tsEvent *pEv, teEvent eEvent, uint32 u32evarg) {
 			// start up message
 			V_PRINTF(LB "*** Cold starting");
 			V_PRINTF(LB "* start end device[%d]", u32TickCount_ms & 0xFFFF);
+
+#ifdef USE_CUE
+			// SPIの初期化
+			vSPIInit( SPI_MODE3, SLAVE_ENABLE1, 1);
+			vMC3630_Sleep();
+#endif
+
+			if( sAppData.u8LID&0x80 ){
+				sAppData.sFlash.sData.u32param |= 0x00000010;
+			}
 		}
 		V_FLUSH();
 
@@ -76,8 +90,11 @@ PRSEV_HANDLER_DEF(E_STATE_APP_WAIT_INPUT, tsEvent *pEv, teEvent eEvent, uint32 u
 	static bool_t bTimeout = FALSE;
 	if( eEvent == E_EVENT_NEW_STATE ){
 		DI_Bitmap = bPortRead(SNS_EN) ? 0x01 : 0x00;
+#ifdef USE_CUE
+		DI_Bitmap |= bPortRead(INPUT_PC) ? 0x02 : 0x00;
+#else
 		DI_Bitmap |= bPortRead(SNS_INT) ? 0x02 : 0x00;
-
+#endif
 		if(DI_Bitmap != 0){
 			bInverse = TRUE;
 		}else{
@@ -131,12 +148,34 @@ PRSEV_HANDLER_DEF(E_STATE_RUNNING, tsEvent *pEv, teEvent eEvent, uint32 u32evarg
 		uint8 u8Event = (sAppData.u8LID&0x80) ? 1:0;
 
 		if( sPALData.u8EEPROMStatus != 0 ){
-			S_OCTET(4+u8Event);		// データ数
+			S_OCTET(4);		// データ数
 			S_OCTET(0x32);
 			S_OCTET(0x00);
 			S_OCTET( sPALData.u8EEPROMStatus );
 		}else{
-			S_OCTET(3+u8Event);		// データ数
+			S_OCTET(3);		// データ数
+		}
+
+		if(IS_APPCONF_OPT_EVENTMODE_MAG()){
+			au8Data[0] += 2;
+
+			S_OCTET(0x34);					// Transmission factor
+			S_OCTET(0x82);
+			if(!sAppData.bWakeupByButton){
+				S_OCTET(0x35);
+				S_OCTET(0x00);
+			}else{
+				S_OCTET(0x00);
+				S_OCTET(0x01);
+			}
+
+			S_OCTET(0x05);					// Event
+			S_OCTET(0x00);
+			uint8 Event = DI_Bitmap;
+			if( IS_APPCONF_OPT_EVENT_INTEGRATION() ){
+				Event = DI_Bitmap ? 1:0;
+			}
+			S_OCTET( Event );
 		}
 
 		S_OCTET(0x30);					// 電源電圧

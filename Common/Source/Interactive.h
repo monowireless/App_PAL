@@ -59,6 +59,10 @@ extern void vProcessSerialCmd(tsSerCmd_Context *pCmd);
 #define A_PUTCHAR(c) if (!Interactive_bGetMode() ) (&sSerStream)->bPutChar(sSerStream.u8Device, c)
 #define A_FLUSH() if (!Interactive_bGetMode()    ) SERIAL_vFlush(UART_PORT)
 
+#define F_PRINTF(...) vfPrintf(&sSerStream,__VA_ARGS__)
+#define F_PUTCHAR(c) (&sSerStream)->bPutChar(sSerStream.u8Device, c)
+#define F_FLUSH() SERIAL_vFlush(UART_PORT)
+
 #define FL_MASTER_u32(c) sAppData.sFlash.sData.u32##c //!< 構造体要素アクセス用のマクロ @ingroup FLASH
 #define FL_UNSAVE_u32(c) sConfig_UnSaved.u32##c //!< 構造体要素アクセス用のマクロ @ingroup FLASH
 #define FL_IS_MODIFIED_u32(c) (sConfig_UnSaved.u32##c != 0xFFFFFFFF)  //!< 構造体要素アクセス用のマクロ @ingroup FLASH

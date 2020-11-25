@@ -64,9 +64,9 @@
 
 #define RMTCNF_PKTCMD 3 //!< パケットのコマンド
 
-#define RMTCNF_MINLQI 150 //!< 有効なLQI値
+#define RMTCNF_MINLQI 100 //!< 有効なLQI値
 
-#define RMTCNF_PRTCL_VERSION 2 //!< パケットバージョン
+#define RMTCNF_PRTCL_VERSION 0x11 //!< パケットバージョン
 
 // パケット種別
 #define RMTCNF_PKTTYPE_REQUEST 0

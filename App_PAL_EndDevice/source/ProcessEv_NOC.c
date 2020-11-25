@@ -5,8 +5,14 @@
 #include <jendefs.h>
 
 #include "utils.h"
-#include "Interactive.h"
+
+#ifdef USE_CUE
+#include "App_CUE.h"
+#else
 #include "EndDevice.h"
+#endif
+
+#include "Interactive.h"
 
 static void vProcessEvCore(tsEvent *pEv, teEvent eEvent, uint32 u32evarg);
 static void vStoreSensorValue();
