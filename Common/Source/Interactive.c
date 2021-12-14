@@ -361,7 +361,7 @@ static void vProcessInputByte(uint8 u8Byte) {
 				E_APPCONF_ENC_KEY);
 		break;
 
-#ifndef USE_CUE
+#if !defined(USE_CUE) && !defined(USE_ARIA)
 	case 'e':
 		V_PRINTF("Notice PAL Action(s) Each Event");
 		V_PRINTF(LB"    IIRGBWPT");
@@ -683,7 +683,7 @@ static void vProcessInputString(tsInpStr_Context *pContext) {
 		}
 		break;
 
-#ifndef USE_CUE
+#if !defined(USE_CUE) && !defined(USE_ARIA)
 	case E_APPCONF_EVENT:
 		_C{
 			uint8 u8len = strlen((void*)pu8str);
@@ -824,7 +824,7 @@ static void vConfig_Update(tsFlashApp *pTemp) {
 	if ( sConfig_UnSaved.u32param != 0xFFFFFFFF) {
 		pTemp->u32param = sConfig_UnSaved.u32param;
 	}
-#ifndef USE_CUE
+#if !defined(USE_CUE) && !defined(USE_ARIA)
 	if( sConfig_UnSaved.au8Event[136] != 0xFF ){
 		memset(pTemp->au8Event, 0, 137);
 		memcpy(pTemp->au8Event, sConfig_UnSaved.au8Event, sConfig_UnSaved.u8EventNum*8);
@@ -959,7 +959,7 @@ static void vSerUpdateScreen() {
 	V_PRINTF(" p: set Senser Parameter (0x%08X)%c" LB,
 			FL_IS_MODIFIED_u32(param) ? FL_UNSAVE_u32(param) : FL_MASTER_u32(param),
 			FL_IS_MODIFIED_u32(param) ? '*' : ' ');
-#ifndef USE_CUE
+#if !defined(USE_CUE) && !defined(USE_ARIA)
 	V_PRINTF(" e: set Event Parameter(s) (%s)%c" LB,
 			(sConfig_UnSaved.au8Event[136] != 0xFF) ? sConfig_UnSaved.au8Event : sAppData.sFlash.sData.au8Event,
 			(sConfig_UnSaved.au8Event[136] != 0xFF) ? '*' : ' '
@@ -970,7 +970,11 @@ static void vSerUpdateScreen() {
 
 	V_PRINTF(" S: save Configuration" LB " R: reset to Defaults" LB);
 #ifdef OTA
+#ifdef USE_ARIA
+	V_PRINTF(" *** POWER ON TWELITE ARIA NEAR THIS CONFIGURATOR ***" LB LB);
+#elif USE_CUE
 	V_PRINTF(" *** POWER ON TWELITE CUE NEAR THIS CONFIGURATOR ***" LB LB);
+#endif
 #else
 	V_PRINTF(LB);
 #endif

@@ -8,12 +8,15 @@
 #include "ccitt8.h"
 #include "Interactive.h"
 #include "sensor_driver.h"
+#include "SPI.h"
 #include "MC3630.h"
 
 #include "flash.h"
 
 #ifdef USE_CUE
 #include "App_CUE.h"
+#elif USE_ARIA
+#include "App_ARIA.h"
 #else
 #include "EndDevice.h"
 #endif
@@ -25,6 +28,19 @@ static bool_t bSendData( int16 ai16accel[3][32], uint8 u8startAddr, uint8 u8Samp
 static bool_t bSendAppTag( int16 ai16accel[3][32], uint8 u8startAddr, uint8 u8Sample );
 
 #define ABS(c) (c<0?(-1*c):c)
+
+/***
+ * ほかのセンサーを使用するモードが有効であること
+ * 連続送信モードではないこと
+ * 複数回送信しないこと
+ * アクティブ検出モードではないこと
+ * 2525Aモードではないこと
+ ***/
+#define IS_ENABLE_OTHER_DEVICE() (IS_APPCONF_OPT_USE_I2CDEVICE() &&\
+			bContinuous == FALSE &&\
+			u8ConMax == 1 &&\
+			bActive == FALSE &&\
+			!IS_APPCONF_OPT_2525AMODE())
 
 static uint8 u8sns_cmplt = 0;
 static tsSnsObj sSnsObj;
@@ -72,9 +88,14 @@ PRSEV_HANDLER_DEF(E_STATE_IDLE, tsEvent *pEv, teEvent eEvent, uint32 u32evarg) {
 			return;
 		}
 
+		if( bShortSleep && !bFirst && !sAppData.bWakeupByButton ){
+			vAHI_SwReset();
+		}
+
 		// センサーがらみの変数の初期化
 		u8sns_cmplt = 0;
 		vMC3630_Init( &sObjMC3630, &sSnsObj );
+
 
 		bShortSleep = FALSE;
 
@@ -130,7 +151,11 @@ PRSEV_HANDLER_DEF(E_STATE_IDLE, tsEvent *pEv, teEvent eEvent, uint32 u32evarg) {
 	}
 }
 
-/* 電源投入時はLEDを点滅させる */
+/***
+ *  
+ * 電源投入時はLEDを点滅させ、センサーの初期化を行う
+ * 
+ ***/
 PRSEV_HANDLER_DEF(E_STATE_APP_BLINK_LED, tsEvent *pEv, teEvent eEvent, uint32 u32evarg) {
 	if(eEvent == E_EVENT_NEW_STATE){
 		V_PRINTF(LB "*** MC3630 Setting...");
@@ -146,23 +171,24 @@ PRSEV_HANDLER_DEF(E_STATE_APP_BLINK_LED, tsEvent *pEv, teEvent eEvent, uint32 u3
 		}
 		V_PRINTF(LB"TH = %d", u16Threshold);
 
+		// 連続モードではない時に連続で送る回数
+		u8ConMax = (sAppData.sFlash.sData.u32param&0xFF) + 1;
 
 		uint8 u8SampleNum = 16;
-		if( IS_APPCONF_OPT_2525AMODE() ){
+		if( IS_ENABLE_OTHER_DEVICE() ){
+			u8SampleNum = 10;
+		}else if( IS_APPCONF_OPT_2525AMODE() ){
 			u8SampleNum = 10;
 		}else if(bActive){
 			u8SampleNum = 30;
 		}
 
-		bool_t bOk = TRUE;
-		// 連続モードではない時に連続で送る回数
-		u8ConMax = (sAppData.sFlash.sData.u32param&0xFF) + 1;
-
 		sObjMC3630.u8SampleFreq = ( (sAppData.sFlash.sData.u32param>>8)&0x07 )+MC3630_SAMPLING25HZ;
 		if( sObjMC3630.u8SampleFreq > MC3630_SAMPLING380HZ ){
 			sObjMC3630.u8SampleFreq = MC3630_SAMPLING25HZ;
 		}
-		bOk = bMC3630_reset( sObjMC3630.u8SampleFreq, MC3630_RANGE16G, u8SampleNum );
+
+		bool_t bOk = bMC3630_reset( sObjMC3630.u8SampleFreq, MC3630_RANGE16G, u8SampleNum );
 		if(bOk == FALSE){
 			V_PRINTF(LB "Access failed.");
 			ToCoNet_Event_SetState(pEv, E_STATE_APP_SLEEP); // スリープ状態へ遷移
@@ -170,6 +196,7 @@ PRSEV_HANDLER_DEF(E_STATE_APP_BLINK_LED, tsEvent *pEv, teEvent eEvent, uint32 u3
 		}
 		V_PRINTF(LB "*** MC3630 Setting Compleate!");
 		V_PRINTF(LB "*** Blink LED ");
+
 		sAppData.u8LedState = 0x02;
 	}
 
@@ -186,7 +213,7 @@ PRSEV_HANDLER_DEF(E_STATE_APP_BLINK_LED, tsEvent *pEv, teEvent eEvent, uint32 u3
 }
 
 PRSEV_HANDLER_DEF(E_STATE_RUNNING, tsEvent *pEv, teEvent eEvent, uint32 u32evarg) {
-		// 短期間スリープからの起床をしたので、センサーの値をとる
+	// 短期間スリープからの起床をしたので、センサーの値をとる
 	if ((eEvent == E_EVENT_START_UP) && (u32evarg & EVARG_START_UP_WAKEUP_RAMHOLD_MASK)) {
 		V_PRINTF("#");
 		vProcessMC3630(E_EVENT_START_UP);
@@ -203,6 +230,7 @@ PRSEV_HANDLER_DEF(E_STATE_RUNNING, tsEvent *pEv, teEvent eEvent, uint32 u32evarg
 		}else{
 			ToCoNet_Event_SetState(pEv, E_STATE_APP_WAIT_TX);
 		}
+		return;
 	}
 
 	// タイムアウト
@@ -401,7 +429,7 @@ PRSEV_HANDLER_DEF(E_STATE_APP_SLEEP, tsEvent *pEv, teEvent eEvent, uint32 u32eva
 		if( bShortSleep ){
 			vPortSetLo(WDT_OUT);
 			// 割り込み待ちスリープに入る
-			ToCoNet_vSleep(E_AHI_WAKE_TIMER_0, 60000, FALSE, FALSE);
+			ToCoNet_vSleep(E_AHI_WAKE_TIMER_0, 0, FALSE, FALSE);
 		}else if (bContinuous){
 			vSleep(60000, FALSE, FALSE);
 		}else{
@@ -591,6 +619,7 @@ static void vProcessMC3630(teEvent eEvent) {
 				sObjMC3630.ai16Result[MC3630_Y][0],
 				sObjMC3630.ai16Result[MC3630_Z][0]
 		);
+		V_FLUSH();
 
 		// 完了時の処理
 		if (u8sns_cmplt == E_SNS_ALL_CMP) {
@@ -612,17 +641,18 @@ static bool_t bSendData( int16 ai16accel[3][32], uint8 u8startAddr, uint8 u8Samp
 {
 	if(IS_APPCONF_OPT_2525AMODE()) return bSendAppTag( ai16accel, u8startAddr, u8Sample );
 
-	uint8 i;
+	uint8	i;
 	uint8	au8Data[92];
 	uint8*	q = au8Data;
+	uint8	sample = u8Sample;
 
 	if( sPALData.u8EEPROMStatus != 0 ){
-		S_OCTET(3+u8Sample);		// データ数
+		S_OCTET(3+sample);		// データ数
 		S_OCTET(0x32);
 		S_OCTET(0x00);
 		S_OCTET( sPALData.u8EEPROMStatus );
 	}else{
-		S_OCTET(2+u8Sample);		// データ数
+		S_OCTET(2+sample);		// データ数
 	}
 
 	S_OCTET(0x30);					// 電源電圧

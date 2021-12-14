@@ -61,6 +61,10 @@ extern "C" {
 #define E_APPCONF_OPT_LOOSE_TH 0x00100000UL
 #define IS_APPCONF_OPT_LOOSE_TH() (sAppData.sFlash.sData.u32param & E_APPCONF_OPT_LOOSE_TH)
 
+#define E_APPCONF_OPT_USE_I2CDEVICE 0x00200000UL
+#define IS_APPCONF_OPT_USE_I2CDEVICE() (sAppData.sFlash.sData.u32param & E_APPCONF_OPT_USE_I2CDEVICE)
+
+
 /****************************************************************************/
 /***        Type Definitions                                              ***/
 /****************************************************************************/
@@ -110,18 +114,19 @@ void vInitAppMAG();
 void vInitAppENV();
 void vInitAppMOT();
 void vInitAppMOT_Event();
-#ifndef USE_CUE
-void vInitAppLED();
-void vInitAppConfig();
-#else
+#if defined(USE_CUE) || defined(USE_ARIA)
 #ifdef OTA
 void vInitAppConfigMaster();
 #else
 void vInitAppCUE();
+void vInitAppARIA();
 void vInitAppCUEConfig();
 void vInitAppOTA();
 void vInitOTAParam( uint8 u8CountNum, uint16 u16TimeOutMs_min, uint16 u16TimeOutMs_max );
 #endif
+#else
+void vInitAppLED();
+void vInitAppConfig();
 #endif
 
 /****************************************************************************/
@@ -136,7 +141,7 @@ extern tsCbHandler *psCbHandler_Sub;
 extern void *pvProcessEv;
 extern void *pvProcessEv_Sub;
 
-#ifdef USE_CUE
+#if defined(USE_CUE) || defined(USE_ARIA)
 extern tsCbHandler *psCbHandler_OTA;
 extern void *pvProcessEv_OTA;
 #endif

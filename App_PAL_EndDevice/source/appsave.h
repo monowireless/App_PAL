@@ -34,7 +34,7 @@ typedef struct _tsFlashApp {
 
 	uint32 u32param;		//!< 選択したセンサ特有のパラメータ
 
-#ifndef USE_CUE
+#if !defined(USE_CUE) && !defined(USE_ARIA)
 	uint8 au8Event[137];		//!< イベントの内容
 	uint8 u8EventNum;		//!< 設定したイベントの数
 #endif

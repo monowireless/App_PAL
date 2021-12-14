@@ -23,21 +23,26 @@ else
   ifeq ($(BOARD),CUE)
     include ../Version.mk
   else
-    VERSION_MAIN = 1
-    VERSION_SUB  = 3
-    VERSION_VAR  = 4
+    ifeq ($(BOARD),ARIA)
+      include ../Version.mk
+    else
+      VERSION_MAIN = 1
+      VERSION_SUB  = 4
+      VERSION_VAR  = 0
 
-    # 1.3.4 CUEモードで60秒以上スリープとリセットがかかる点を修正。
-    # 1.3.3 MC3630のイベント検出の閾値を厳しくし、元のパラメータに設定できるようにした。
-    # 1.3.1 ホールIC起点でOTAする機能を実装(CUEのみ)
-    # 1.3.0 CUEに対応
-    # 1.2.1 送信間隔の刻みを1秒に修正
-    # 1.2.0 NOTICE PALに対応
-    # 1.1.0 ビルドライブラリの修正
-    # 1.0.2 加速度の計算が間違っている点を修正
-    # 1.0.1 MOT PALに対応
-    # 1.0.0 リリース版
-    # 0.1.0 App_TagをベースにTWELITE PAL用のピン配置などを定義し、ピンの機能に応じて初期化などを行った
+      # 1.4.0 ARIAに対応
+      # 1.3.4 CUEモードで60秒以上スリープとリセットがかかる点を修正。
+      # 1.3.3 MC3630のイベント検出の閾値を厳しくし、元のパラメータに設定できるようにした。
+      # 1.3.1 ホールIC起点でOTAする機能を実装(CUEのみ)
+      # 1.3.0 CUEに対応
+      # 1.2.1 送信間隔の刻みを1秒に修正
+      # 1.2.0 NOTICE PALに対応
+      # 1.1.0 ビルドライブラリの修正
+      # 1.0.2 加速度の計算が間違っている点を修正
+      # 1.0.1 MOT PALに対応
+      # 1.0.0 リリース版
+      # 0.1.0 App_TagをベースにTWELITE PAL用のピン配置などを定義し、ピンの機能に応じて初期化などを行った
+    endif
   endif
 endif
  
@@ -53,6 +58,7 @@ APPSRC += adc.c
 APPSRC += SMBus.c
 APPSRC += SPI.c
 APPSRC += SHTC3.c
+APPSRC += SHT4x.c
 APPSRC += LTR308ALS.c
 APPSRC += MC3630.c
 APPSRC += PCA9632.c
@@ -87,7 +93,11 @@ ifeq ($(BOARD),OTA)
   APP_COMMON_SRC_DIR_ADD3 = ../App_PAL/Common/Source
   APP_COMMON_SRC_DIR_ADD4 = ../App_PAL/Common/Source_User
 
-  CFLAGS += -DUSE_CUE -DOTA
+  ifeq ($(MODE),ARIA)
+    CFLAGS += -DUSE_ARIA -DOTA
+  else
+    CFLAGS += -DUSE_CUE -DOTA
+  endif
 else
   ifeq ($(BOARD),CUE)
     APPSRC += ProcessEv_CUE.c
@@ -101,12 +111,26 @@ else
 
     CFLAGS += -DUSE_CUE
   else
-    APPSRC += ProcessEv_LED.c
-    APPSRC += ProcessEv_Config.c
-    APP_COMMON_SRC_DIR_ADD1 = ../../../App_PAL/App_PAL_EndDevice/source
-    APP_COMMON_SRC_DIR_ADD2 = ../../../App_PAL/Common/Sensor
-    APP_COMMON_SRC_DIR_ADD3 = ../../../App_PAL/Common/Source
-    APP_COMMON_SRC_DIR_ADD4 = ../../../App_PAL/Common/Source_User
+    ifeq ($(BOARD),ARIA)
+      APPSRC += ProcessEv_CUE.c
+      APPSRC += ProcessEv_ARIA.c
+      APPSRC += ProcessEv_CUEConfig.c
+      APPSRC += ProcessEv_OTA.c
+
+      APP_COMMON_SRC_DIR_ADD1 = ../App_PAL/App_PAL_EndDevice/source
+      APP_COMMON_SRC_DIR_ADD2 = ../App_PAL/Common/Sensor
+      APP_COMMON_SRC_DIR_ADD3 = ../App_PAL/Common/Source
+      APP_COMMON_SRC_DIR_ADD4 = ../App_PAL/Common/Source_User
+
+      CFLAGS += -DUSE_ARIA
+    else
+      APPSRC += ProcessEv_LED.c
+      APPSRC += ProcessEv_Config.c
+      APP_COMMON_SRC_DIR_ADD1 = ../../../App_PAL/App_PAL_EndDevice/source
+      APP_COMMON_SRC_DIR_ADD2 = ../../../App_PAL/Common/Sensor
+      APP_COMMON_SRC_DIR_ADD3 = ../../../App_PAL/Common/Source
+      APP_COMMON_SRC_DIR_ADD4 = ../../../App_PAL/Common/Source_User
+    endif
   endif
 endif
  

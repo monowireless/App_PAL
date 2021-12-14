@@ -17,26 +17,25 @@
 #endif
 
 #include "sensor_driver.h"
-#include "SHTC3.h"
-#include "LTR308ALS.h"
+#include "SHT4x.h"
+#include "adc.h"
 
 static void vProcessEvCore(tsEvent *pEv, teEvent eEvent, uint32 u32evarg);
 static void vStoreSensorValue();
-static void vProcessENV(teEvent eEvent);
+static void vProcessARIA(teEvent eEvent);
 static uint8 u8sns_cmplt = 0;
 
-static tsSnsObj sSnsObj[2];
-static tsObjData_SHTC3 sObjSHTC3;
-static tsObjData_LTR308ALS sObjLTR308ALS;
+static tsSnsObj sSnsObj;
+static tsObjData_SHT4x sObjSHT4x;
 
-static uint8 au8ErrCount[3];
-static bool_t abErr[2];
+static uint8 DI_Bitmap = 0;
+static bool_t bErr;
+static bool_t bInverse = FALSE;
 
 enum {
 	E_SNS_ADC_CMP_MASK = 1,
-	E_SNS_SHTC3_CMP = 2,
-	E_SNS_LTR308ALS_CMP = 4,
-	E_SNS_ALL_CMP = 7
+	E_SNS_SHT4x_CMP = 2,
+	E_SNS_ALL_CMP = 3
 };
 
 /*
@@ -66,45 +65,21 @@ PRSEV_HANDLER_DEF(E_STATE_IDLE, tsEvent *pEv, teEvent eEvent, uint32 u32evarg) {
 			return;
 		}
 
-		// 連続10回読み込みエラーが起こってたらリセットする。
-		int8 i=0;
-		for( i=0;i<2;i++ ){
-			if( au8ErrCount[i] >= 10 ){
-				vAHI_SwReset();
-			}
-		}
-
-		
-
 		// センサーがらみの変数の初期化
 		u8sns_cmplt = 0;
 
-		vLTR308ALS_Init(&sObjLTR308ALS, &sSnsObj[1]);
-		vSnsObj_Process(&sSnsObj[1], E_ORDER_KICK);
-		if (bSnsObj_isComplete(&sSnsObj[1])) {
-			// 即座に完了した時はセンサーが接続されていない、通信エラー等
-			u8sns_cmplt |= E_SNS_LTR308ALS_CMP;
-			V_PRINTF(LB "*** LTR308ALS comm err?");
-			V_FLUSH();
-			abErr[1] = TRUE;
-			//ToCoNet_Event_SetState(pEv, E_STATE_APP_SLEEP); // スリープ状態へ遷移
-			return;
-		}else{
-			abErr[1] = FALSE;
-		}
-
 		// SHTC3
-		vSHTC3_Init(&sObjSHTC3, &sSnsObj[0]);
-		vSnsObj_Process(&sSnsObj[0], E_ORDER_KICK);
-		if (bSnsObj_isComplete(&sSnsObj[0])) {
+		vSHT4x_Init(&sObjSHT4x, &sSnsObj);
+		vSnsObj_Process(&sSnsObj, E_ORDER_KICK);
+		if (bSnsObj_isComplete(&sSnsObj)) {
 			// 即座に完了した時はセンサーが接続されていない、通信エラー等
-			u8sns_cmplt |= E_SNS_SHTC3_CMP;
-			V_PRINTF(LB "*** SHTC3 comm err?");
-			abErr[0] = TRUE;
+			u8sns_cmplt |= E_SNS_SHT4x_CMP;
+			V_PRINTF(LB "*** SHT4x comm err?");
+			bErr = TRUE;
 			//ToCoNet_Event_SetState(pEv, E_STATE_APP_SLEEP); // スリープ状態へ遷移
 			return;
 		}else{
-			abErr[0] = FALSE;
+			bErr = FALSE;
 		}
 
 		// ADC の取得
@@ -120,15 +95,24 @@ PRSEV_HANDLER_DEF(E_STATE_RUNNING, tsEvent *pEv, teEvent eEvent, uint32 u32evarg
 	static bool_t bTimeout = FALSE;
 	if (eEvent == E_EVENT_NEW_STATE) {
 		bTimeout = FALSE;
+
+		DI_Bitmap = bPortRead(SNS_EN) ? 0x01 : 0x00;
+		DI_Bitmap |= bPortRead(INPUT_PC) ? 0x02 : 0x00;
+		if(DI_Bitmap != 0){
+			bInverse = TRUE;
+		}else{
+			bInverse = FALSE;
+		}
+		V_PRINTF( LB"HALL : %d, %c", DI_Bitmap, bInverse?'t':'f' );
+		V_FLUSH();
 	}
 
 	// 短期間スリープからの起床をしたので、センサーの値をとる
 	if ((eEvent == E_EVENT_START_UP) && (u32evarg & EVARG_START_UP_WAKEUP_RAMHOLD_MASK)) {
-		vProcessENV(E_EVENT_START_UP);
+		vProcessARIA(E_EVENT_START_UP);
 	}
 
-	// ２回スリープすると完了
-	if (u8sns_cmplt != E_SNS_ALL_CMP && (u8sns_cmplt & E_SNS_ADC_CMP_MASK)) {
+/*	if (u8sns_cmplt != E_SNS_ALL_CMP && (u8sns_cmplt & E_SNS_ADC_CMP_MASK)) {
 		// ADC 完了後、この状態が来たらスリープする
 		pEv->bKeepStateOnSetAll = TRUE; // スリープ復帰の状態を維持
 
@@ -139,22 +123,22 @@ PRSEV_HANDLER_DEF(E_STATE_RUNNING, tsEvent *pEv, teEvent eEvent, uint32 u32evarg
 		// 空いている WAKE_TIMER_1 を利用する
 		ToCoNet_vSleep(E_AHI_WAKE_TIMER_1, 50, FALSE, FALSE); // PERIODIC RAM OFF SLEEP USING WK1
 	}
-
+*/
 	// 送信処理に移行
 	if (u8sns_cmplt == E_SNS_ALL_CMP) {
 		ToCoNet_Event_SetState(pEv, E_STATE_APP_WAIT_TX);
 	}
 
-	if( ToCoNet_Event_u32TickFrNewState(pEv) > 100 && bTimeout == FALSE ){
+	// なぜかADできないときがあるので、もう一回KICKする
+	if( ToCoNet_Event_u32TickFrNewState(pEv) > 100 && bTimeout == FALSE && !(u8sns_cmplt&E_SNS_ADC_CMP_MASK) ){
 		bTimeout = TRUE;
 		vSnsObj_Process(&sAppData.sADC, E_ORDER_KICK);
 	}
 
 	// タイムアウト
 	if (ToCoNet_Event_u32TickFrNewState(pEv) > 200) {
-		V_PRINTF(LB"! TIME OUT (E_STATE_RUNNING)");
+		V_PRINTF(LB"! TIME OUT (E_STATE_RUNNING) %03b", u8sns_cmplt);
 		ToCoNet_Event_SetState(pEv, E_STATE_APP_WAIT_TX);
-		//ToCoNet_Event_SetState(pEv, E_STATE_APP_SLEEP); // スリープ状態へ遷移
 	}
 }
 
@@ -180,13 +164,25 @@ PRSEV_HANDLER_DEF(E_STATE_APP_WAIT_TX, tsEvent *pEv, teEvent eEvent, uint32 u32e
 		uint8 au8Data[64];
 		uint8 *q =  au8Data;
 
-		if( sPALData.u8EEPROMStatus != 0 ){
-			S_OCTET(6);		// データ数
-			S_OCTET(0x32);
+		S_OCTET(7);		// データ数
+
+		S_OCTET(0x34);
+		S_OCTET(0x81);
+		if(sAppData.bWakeupByButton){
 			S_OCTET(0x00);
-			S_OCTET( sPALData.u8EEPROMStatus );
+			S_OCTET(0x01);
 		}else{
-			S_OCTET(5);		// データ数
+			S_OCTET(0x35);
+			S_OCTET(0x00);
+		}
+
+		S_OCTET(0x05);
+		if(sAppData.bWakeupByButton){
+			S_OCTET(0x00);
+			S_OCTET(DI_Bitmap);
+		}else{
+			S_OCTET(0x35);
+			S_OCTET(1);
 		}
 
 		S_OCTET(0x30);					// 電圧
@@ -197,35 +193,17 @@ PRSEV_HANDLER_DEF(E_STATE_APP_WAIT_TX, tsEvent *pEv, teEvent eEvent, uint32 u32e
 		S_OCTET(0x02);					// ADC1(AI1)
 		S_BE_WORD(sAppData.u16Adc[0]);
 
+		S_OCTET(0x00);			// HALL IC
+		S_OCTET(0x00);			// 予約領域
+		S_OCTET(DI_Bitmap | (sAppData.bWakeupByButton?0x00:0x80) );
+
 		S_OCTET(0x01);			// Temp
 		S_OCTET(0x00);
-		S_BE_WORD(sObjSHTC3.ai16Result[SHTC3_IDX_TEMP]);
-
-		if(sObjSHTC3.ai16Result[SHTC3_IDX_TEMP] == SHTC3_DATA_ERROR || sObjSHTC3.ai16Result[SHTC3_IDX_TEMP] == SHTC3_DATA_NOTYET  ){
-			au8ErrCount[0]++;
-		}else{
-			au8ErrCount[0] = 0;
-		}
+		S_BE_WORD(sObjSHT4x.ai16Result[SHT4x_IDX_TEMP]);
 
 		S_OCTET(0x02);			// Hum
 		S_OCTET(0x00);
-		S_BE_WORD(sObjSHTC3.ai16Result[SHTC3_IDX_HUMID]);
-
-		if(sObjSHTC3.ai16Result[SHTC3_IDX_HUMID] == SHTC3_DATA_ERROR || sObjSHTC3.ai16Result[SHTC3_IDX_HUMID] == SHTC3_DATA_NOTYET  ){
-			au8ErrCount[1]++;
-		}else{
-			au8ErrCount[1] = 0;
-		}
-
-		S_OCTET(0x03);			// Lux
-		S_OCTET(0x00);
-		S_BE_DWORD(sObjLTR308ALS.u32Result);
-
-		if(sObjLTR308ALS.u32Result == LTR308ALS_DATA_ERROR || sObjLTR308ALS.u32Result == LTR308ALS_DATA_NOTYET  ){
-			au8ErrCount[1]++;
-		}else{
-			au8ErrCount[1] = 0;
-		}
+		S_BE_WORD(sObjSHT4x.ai16Result[SHT4x_IDX_HUMID]);
 
 		sAppData.u16frame_count++;
 		if ( bTransmitToParent( sAppData.pContextNwk, au8Data, q-au8Data ) ) {
@@ -288,10 +266,14 @@ PRSEV_HANDLER_DEF(E_STATE_APP_SLEEP, tsEvent *pEv, teEvent eEvent, uint32 u32eva
 		}
 
 		vAHI_UartDisable(UART_PORT); // UART を解除してから(このコードは入っていなくても動作は同じ)
-
 		(void)u32AHI_DioInterruptStatus(); // clear interrupt register
-		vAHI_DioWakeEnable( u32DioPortWakeUp, 0 ); // also use as DIO WAKE SOURCE
-		vAHI_DioWakeEdge( 0, u32DioPortWakeUp ); // 割り込みエッジ（立下りに設定）
+
+		vAHI_DioWakeEnable( u32DioPortWakeUp, 0); // ENABLE DIO WAKE SOURCE
+		if(bInverse){
+			vAHI_DioWakeEdge( ((1UL<<SNS_EN)|(1UL<<INPUT_PC)), (1UL<<INPUT_SET) ); // 割り込みエッジ（立上がりに設定）
+		}else{
+			vAHI_DioWakeEdge( 0, u32DioPortWakeUp ); // 割り込みエッジ（立下がりに設定）
+		}
 
 		// 周期スリープに入る
 		vSleep( u32Sleep, sAppData.u16frame_count == 1 ? FALSE : TRUE, FALSE);
@@ -359,7 +341,7 @@ static uint8 cbAppToCoNet_u8HwInt(uint32 u32DeviceId, uint32 u32ItemBitmap) {
 static void cbAppToCoNet_vHwEvent(uint32 u32DeviceId, uint32 u32ItemBitmap) {
 	switch (u32DeviceId) {
 	case E_AHI_DEVICE_TICK_TIMER:
-		vProcessENV(E_EVENT_TICK_TIMER);
+		vProcessARIA(E_EVENT_TICK_TIMER);
 		break;
 
 	case E_AHI_DEVICE_ANALOGUE:
@@ -449,38 +431,22 @@ static tsCbHandler sCbHandler = {
 /**
  * アプリケーション初期化
  */
-void vInitAppENV() {
+void vInitAppARIA() {
 	psCbHandler = &sCbHandler;
 	pvProcessEv = vProcessEvCore;
 }
 
-static void vProcessENV(teEvent eEvent) {
-	if (bSnsObj_isComplete(&sSnsObj[0]) && bSnsObj_isComplete(&sSnsObj[1])) {
+static void vProcessARIA(teEvent eEvent) {
+	if (bSnsObj_isComplete(&sSnsObj)) {
 		 return;
 	}
 
 	// イベントの処理
-	vSnsObj_Process(&sSnsObj[0], eEvent); // ポーリングの時間待ち
-	if (bSnsObj_isComplete(&sSnsObj[0]) && !(u8sns_cmplt&E_SNS_SHTC3_CMP) ){
-		u8sns_cmplt |= E_SNS_SHTC3_CMP;
+	vSnsObj_Process(&sSnsObj, eEvent); // ポーリングの時間待ち
+	if (bSnsObj_isComplete(&sSnsObj) && !(u8sns_cmplt&E_SNS_SHT4x_CMP) ){
+		u8sns_cmplt |= E_SNS_SHT4x_CMP;
 
-		V_PRINTF(LB"!SHTC3: %d.%02dC %d.%02d%%",
-			sObjSHTC3.ai16Result[SHTC3_IDX_TEMP] / 100, sObjSHTC3.ai16Result[SHTC3_IDX_TEMP] % 100,
-			sObjSHTC3.ai16Result[SHTC3_IDX_HUMID] / 100, sObjSHTC3.ai16Result[SHTC3_IDX_HUMID] % 100
-		);
-		V_FLUSH();
-
-		// 完了時の処理
-		if (u8sns_cmplt == E_SNS_ALL_CMP) {
-			ToCoNet_Event_Process(E_ORDER_KICK, 0, vProcessEvCore);
-		}
-	}
-
-	vSnsObj_Process(&sSnsObj[1], eEvent); // ポーリングの時間待ち
-	if (bSnsObj_isComplete(&sSnsObj[1]) && !(u8sns_cmplt&E_SNS_LTR308ALS_CMP) ) {
-		u8sns_cmplt |= E_SNS_LTR308ALS_CMP;
-
-		V_PRINTF(LB"!LTR308ALS: %d Lux", sObjLTR308ALS.u32Result);
+		V_PRINTF(LB"!SHT4x: %dC %d%%", sObjSHT4x.ai16Result[SHT4x_IDX_TEMP], sObjSHT4x.ai16Result[SHT4x_IDX_HUMID] );
 		V_FLUSH();
 
 		// 完了時の処理
